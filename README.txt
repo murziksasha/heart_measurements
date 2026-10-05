@@ -10,19 +10,32 @@ rights.
 
 HOW TO USE:
 1. Double-click "AI-ECG Portable.exe" to start the application.
-2. The application will launch with a clean patient database and default settings.
-3. When you exit, all newly imported ECG recordings, patient records, PDF
-   reports, and user configurations are automatically saved inside the "Data"
-   folder.
+2. The application automatically logs into your account (1versuses1@gmail.com)
+   with patient profile "Grygoriev" and your registered ER1 device ready.
+3. To download from the ER1 device:
+   - Connect the ER1 to your computer via USB (appears as a removable drive).
+   - In the top toolbar of the application, click the "Download" button
+     (arrow pointing down into a tray).
+   - Select patient "Grygoriev" and click "OK". The application scans the
+     device drive for "R*" recording files, imports them, and prepares them
+     for AI Analysis.
+4. When you exit, all newly imported ECG recordings, patient records, PDF
+   reports, and user configurations are automatically saved inside "Data/".
 
-ZERO-TRACE ISOLATION:
-- All data stays inside this portable directory.
-- No files or records are left behind in the host computer's AppData.
-- If the host computer already had an installation of AI-ECG Analysis System,
-  the launcher safely preserves and restores the host's existing data upon exit.
+DEVICE MANAGEMENT (BIND / UNBIND):
+- Double-click "Manage Devices.bat" to open the Portable Device Manager.
+- You can view all currently bound devices, bind new devices (ER1, ER1-LW,
+  ER1-LB, ER2/DuoEK, etc.), unbind unused devices, and re-bind them at any time.
+
+DIRECT FILE IMPORT:
+- Double-click "Import ECG.bat" to import any "R*" recording file or folder
+  (such as records saved on your computer) directly into the patient database
+  without requiring a physical USB connection.
 
 DIRECTORY STRUCTURE:
 - AI-ECG Portable.exe  : Portable launcher (run this file)
+- Manage Devices.bat   : Device Manager tool (bind/unbind device serial numbers)
+- Import ECG.bat       : Direct ECG file importer (imports R* files from any folder)
 - App/                 : Application binaries, Qt libraries, and drivers
 - Data/                : Portable patient database, reports, settings, and logs
   - config.ini         : User preferences and settings
