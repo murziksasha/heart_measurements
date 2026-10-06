@@ -1,0 +1,12 @@
+[2026-10-06 23:36:14.588] Interceptor started for PID 22624
+[2026-10-06 23:36:15.562] EVENT_SHOW: HWND=3473686, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=0, Size=1044x653
+[2026-10-06 23:36:17.629] EVENT_SHOW: HWND=10619206, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=3473686, Size=387x273
+[2026-10-06 23:36:17.630] Matched Download dialog 10619206! Hiding and running modal...
+[2026-10-06 23:36:17.671] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-06 23:38:01.459] Interceptor started for PID 20860
+[2026-10-06 23:38:02.392] EVENT_SHOW: HWND=17957160, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=0, Size=1044x653
+[2026-10-06 23:38:14.908] EVENT_SHOW: HWND=13633448, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=265x142
+[2026-10-06 23:38:19.357] EVENT_SHOW: HWND=13698984, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=265x157
+[2026-10-06 23:38:23.008] EVENT_SHOW: HWND=13764520, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=387x273
+[2026-10-06 23:38:23.009] Matched Download dialog 13764520! Hiding and running modal...
+[2026-10-06 23:38:23.041] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"

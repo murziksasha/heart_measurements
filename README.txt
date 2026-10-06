@@ -12,13 +12,16 @@ HOW TO USE:
 1. Double-click "AI-ECG Portable.exe" to start the application.
 2. The application automatically logs into your account (1versuses1@gmail.com)
    with patient profile "Grygoriev" and your registered ER1 device ready.
-3. To download from the ER1 device:
-   - Connect the ER1 to your computer via USB (appears as a removable drive).
-   - In the top toolbar of the application, click the "Download" button
-     (arrow pointing down into a tray).
-   - Select patient "Grygoriev" and click "OK". The application scans the
-     device drive for "R*" recording files, imports them, and prepares them
-     for AI Analysis.
+3. To import ECG recordings:
+   - In the top toolbar of the application, click the "Import Data" button.
+   - A modal will appear giving you 2 options:
+     * "From Device": Use when ER1 is connected via USB. The application
+       scans the device drive for "R*" recording files.
+     * "From Folder": Use to import files copied from the ER1 onto your computer
+       (e.g. from "C:\Users\user\Downloads\ER1"). Choose folder, select one or
+       multiple recordings with automatic uniqueness checking, and import.
+   - Newly imported recordings appear immediately as new rows in the table
+     with full functionality (View report, View ECG, Batch analysis).
 4. When you exit, all newly imported ECG recordings, patient records, PDF
    reports, and user configurations are automatically saved inside "Data/".
 
@@ -27,15 +30,16 @@ DEVICE MANAGEMENT (BIND / UNBIND):
 - You can view all currently bound devices, bind new devices (ER1, ER1-LW,
   ER1-LB, ER2/DuoEK, etc.), unbind unused devices, and re-bind them at any time.
 
-DIRECT FILE IMPORT:
-- Double-click "Import ECG.bat" to import any "R*" recording file or folder
-  (such as records saved on your computer) directly into the patient database
+DIRECT FILE IMPORT (STANDALONE GUI):
+- Double-click "Import ECG.bat" to launch the Folder Import tool directly
   without requiring a physical USB connection.
 
 DIRECTORY STRUCTURE:
 - AI-ECG Portable.exe  : Portable launcher (run this file)
 - Manage Devices.bat   : Device Manager tool (bind/unbind device serial numbers)
-- Import ECG.bat       : Direct ECG file importer (imports R* files from any folder)
+- Import ECG.bat       : Direct ECG file importer (graphical folder importer)
+- import_gui.py        : Import GUI dialog (Choice modal & Folder import)
+- import_local_er1.py  : Core ECG file import & decompression engine
 - App/                 : Application binaries, Qt libraries, and drivers
 - Data/                : Portable patient database, reports, settings, and logs
   - config.ini         : User preferences and settings
