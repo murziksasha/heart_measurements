@@ -28,3 +28,5 @@
 [2026-10-07 00:56:13.923] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
 [2026-10-07 00:56:40.035] RunImportModal finished with exitCode 0
 [2026-10-07 01:12:59.661] RunAddUserModal exitCode: -1
+[2026-10-07 06:51:50.739] RunAddUserModal launching: "C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\manage_users.py" --add-gui
+[2026-10-07 06:51:55.695] RunAddUserModal exitCode: 0
