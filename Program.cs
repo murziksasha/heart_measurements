@@ -19,6 +19,10 @@ namespace AI_ECG_Portable
             IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
             int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
+        private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
         [DllImport("user32.dll")]
         private static extern IntPtr SetWinEventHook(
             uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
@@ -67,6 +71,145 @@ namespace AI_ECG_Portable
         [DllImport("kernel32.dll")]
         private static extern uint GetCurrentThreadId();
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr CreateWindowEx(
+            uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
+            int x, int y, int nWidth, int nHeight, IntPtr hWndParent,
+            IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWindowLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CreatePopupMenu();
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool AppendMenu(IntPtr hMenu, uint uFlags, UIntPtr uIDNewItem, string lpNewItem);
+
+        [DllImport("user32.dll")]
+        private static extern int TrackPopupMenuEx(IntPtr hMenu, uint uFlags, int x, int y, IntPtr hWnd, IntPtr lpTPMParams);
+
+        [DllImport("user32.dll")]
+        private static extern bool DestroyMenu(IntPtr hMenu);
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr CreateFont(
+            int nHeight, int nWidth, int nEscapement, int nOrientation,
+            int fnWeight, uint fdwItalic, uint fdwUnderline, uint fdwStrikeOut,
+            uint fdwCharSet, uint fdwOutputPrecision, uint fdwClipPrecision,
+            uint fdwQuality, uint fdwPitchAndFamily, string lpszFace);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWindowsHookEx(int idHook, HookProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PAINTSTRUCT
+        {
+            public IntPtr hdc;
+            public bool fErase;
+            public RECT rcPaint;
+            public bool fRestore;
+            public bool fIncUpdate;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+            public byte[] rgbReserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TRACKMOUSEEVENT
+        {
+            public uint cbSize;
+            public uint dwFlags;
+            public IntPtr hwndTrack;
+            public uint dwHoverTime;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+
+        [DllImport("user32.dll")]
+        private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern int FillRect(IntPtr hDC, [In] ref RECT lprc, IntPtr hbr);
+
+        [DllImport("user32.dll")]
+        private static extern int FrameRect(IntPtr hDC, [In] ref RECT lprc, IntPtr hbr);
+
+        [DllImport("user32.dll")]
+        private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCapture(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int DrawText(IntPtr hDC, string lpchText, int nCount, ref RECT lpRect, uint uFormat);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCursor(IntPtr hCursor);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateSolidBrush(uint crColor);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr hObject);
+
+        [DllImport("gdi32.dll")]
+        private static extern int SetBkMode(IntPtr hdc, int iBkMode);
+
+        [DllImport("gdi32.dll")]
+        private static extern uint SetTextColor(IntPtr hdc, uint crColor);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT
         {
@@ -74,6 +217,23 @@ namespace AI_ECG_Portable
             public int Top;
             public int Right;
             public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MSLLHOOKSTRUCT
+        {
+            public POINT pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -95,15 +255,40 @@ namespace AI_ECG_Portable
         private const int SW_SHOW = 5;
         private const uint WM_CLOSE = 0x0010;
         private const uint WM_QUIT = 0x0012;
+        private const uint WM_PAINT = 0x000F;
+        private const uint WM_ERASEBKGND = 0x0014;
+        private const uint WM_SETCURSOR = 0x0020;
+        private const uint WM_MOUSEMOVE = 0x0200;
+        private const uint WM_MOUSELEAVE = 0x02A3;
         private const uint WM_LBUTTONDOWN = 0x0201;
         private const uint WM_LBUTTONUP = 0x0202;
+        private const uint WM_RBUTTONUP = 0x0205;
+        private const uint WM_SETFONT = 0x0030;
+        private const int WH_MOUSE_LL = 14;
+        private const int GWL_WNDPROC = -4;
+        private const uint WS_CHILD = 0x40000000;
+        private const uint WS_VISIBLE = 0x10000000;
+        private const uint BS_PUSHBUTTON = 0x00000000;
         private const int ASFW_ANY = -1;
+        private const int IDC_HAND = 32649;
 
         #endregion
 
         private static IntPtr s_mainHwnd = IntPtr.Zero;
         private static IntPtr s_allowedDeviceHwnd = IntPtr.Zero;
         private static bool s_isImportModalRunning = false;
+        private static bool s_isAddUserModalRunning = false;
+        private static bool s_restartRequested = false;
+
+        private static IntPtr s_btnAddHwnd = IntPtr.Zero;
+        private static IntPtr s_origBtnWndProc = IntPtr.Zero;
+        private static WndProcDelegate s_btnWndProc = null;
+        private static bool s_isHovered = false;
+        private static bool s_isPressed = false;
+        private static IntPtr s_hBtnFont = IntPtr.Zero;
+
+        private static IntPtr s_mouseHook = IntPtr.Zero;
+        private static HookProc s_mouseHookProc = null;
 
         [STAThread]
         static void Main(string[] args)
@@ -199,20 +384,35 @@ namespace AI_ECG_Portable
 
                 try
                 {
-                    using (Process process = Process.Start(psi))
+                    bool shouldRun = true;
+                    while (shouldRun)
                     {
-                        // Start our Import Button Interceptor
-                        Thread interceptorThread = StartImportInterceptor(process, appDir, hostEcgBrowserDir, portableDataDir);
+                        shouldRun = false;
+                        s_mainHwnd = IntPtr.Zero;
+                        s_btnAddHwnd = IntPtr.Zero;
 
-                        process.WaitForExit();
+                        using (Process process = Process.Start(psi))
+                        {
+                            // Start Unified Interceptor Thread (Downloads + Sidebar + Hook)
+                            Thread interceptorThread = StartUnifiedInterceptor(process, appDir, hostEcgBrowserDir, portableDataDir);
 
-                        // Stop interceptor thread when main app exits
-                        StopImportInterceptor(interceptorThread);
-                    }
+                            process.WaitForExit();
 
-                    if (Directory.Exists(hostEcgBrowserDir))
-                    {
-                        CopyDirectory(hostEcgBrowserDir, portableDataDir);
+                            StopUnifiedInterceptor(interceptorThread);
+                        }
+
+                        if (Directory.Exists(hostEcgBrowserDir))
+                        {
+                            CopyDirectory(hostEcgBrowserDir, portableDataDir);
+                        }
+
+                        // Seamless reload if user creation requested immediate application refresh
+                        if (s_restartRequested)
+                        {
+                            s_restartRequested = false;
+                            shouldRun = true;
+                            Thread.Sleep(300);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -246,18 +446,37 @@ namespace AI_ECG_Portable
             }
         }
 
-        #region Import Interceptor Mechanism
+        #region Unified Interceptor: Download Interception, Sidebar Button & Context Menu
 
         private static uint s_interceptorThreadId = 0;
 
-        private static Thread StartImportInterceptor(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        private static Thread StartUnifiedInterceptor(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
         {
             Thread t = new Thread(() =>
             {
                 s_interceptorThreadId = GetCurrentThreadId();
 
-                LogInterceptor(appDir, string.Format("Interceptor started for PID {0}", targetProcess.Id));
+                LogInterceptor(appDir, string.Format("Unified interceptor started for PID {0}", targetProcess.Id));
 
+                // 1. Proactive Main Window Watcher & Child Button Creator
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    int attempts = 0;
+                    while (s_mainHwnd == IntPtr.Zero && attempts < 200 && !targetProcess.HasExited)
+                    {
+                        s_mainHwnd = FindMainWindow(targetProcess.Id);
+                        if (s_mainHwnd != IntPtr.Zero)
+                        {
+                            LogInterceptor(appDir, string.Format("Found MainWindow HWND: {0}", s_mainHwnd));
+                            AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                            break;
+                        }
+                        Thread.Sleep(50);
+                        attempts++;
+                    }
+                });
+
+                // 2. WinEvent Hook for download dialog interception
                 WinEventDelegate proc = (IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime) =>
                 {
                     if (idObject == 0 && hwnd != IntPtr.Zero)
@@ -278,23 +497,24 @@ namespace AI_ECG_Portable
                             int w = r.Right - r.Left;
                             int h = r.Bottom - r.Top;
 
-                            LogInterceptor(appDir, string.Format("EVENT_SHOW: HWND={0}, Cls={1}, Title='{2}', Owner={3}, Size={4}x{5}",
-                                hwnd, cls, title, owner, w, h));
-
-                            // Main window has no owner and large dimensions
+                            // Update main window reference if detected here
                             if (owner == IntPtr.Zero && w >= 600 && h >= 400)
                             {
-                                s_mainHwnd = hwnd;
+                                if (s_mainHwnd == IntPtr.Zero)
+                                {
+                                    s_mainHwnd = hwnd;
+                                    LogInterceptor(appDir, string.Format("EVENT_SHOW main window {0}", hwnd));
+                                    AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                }
                             }
                             else if (hwnd != s_mainHwnd)
                             {
                                 if (hwnd == s_allowedDeviceHwnd)
                                 {
-                                    LogInterceptor(appDir, string.Format("Ignored allowed device dialog {0}", hwnd));
                                     return;
                                 }
 
-                                // DeviceDownloadDialog has fixed size 387x273
+                                // DeviceDownloadDialog check
                                 bool isDownloadDialog = (w >= 370 && w <= 405 && h >= 255 && h <= 290) ||
                                                         title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                                         title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -304,11 +524,9 @@ namespace AI_ECG_Portable
                                     s_isImportModalRunning = true;
                                     LogInterceptor(appDir, string.Format("Matched Download dialog {0}! Hiding and running modal...", hwnd));
 
-                                    // Instantly hide the native USB dialog so "Please connect your device first!" never displays
                                     ShowWindow(hwnd, SW_HIDE);
 
-                                    // Launch custom Import Modal (Choice: From Device vs From Folder)
-                                    ThreadPool.QueueUserWorkItem(_ =>
+                                    ThreadPool.QueueUserWorkItem(__ =>
                                     {
                                         try
                                         {
@@ -331,12 +549,59 @@ namespace AI_ECG_Portable
                     (uint)targetProcess.Id, 0,
                     WINEVENT_OUTOFCONTEXT);
 
+                // 3. Install Mouse Hook for Right-Click on "All Users"
+                s_mouseHookProc = (int nCode, IntPtr wParam, IntPtr lParam) =>
+                {
+                    if (nCode >= 0 && (int)wParam == WM_RBUTTONUP && !s_isAddUserModalRunning && !s_isImportModalRunning)
+                    {
+                        if (s_mainHwnd != IntPtr.Zero && IsWindow(s_mainHwnd))
+                        {
+                            IntPtr fg = GetForegroundWindow();
+                            if (fg == s_mainHwnd)
+                            {
+                                MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                                POINT clientPt = hs.pt;
+                                ScreenToClient(s_mainHwnd, ref clientPt);
+
+                                // All Users row bounds: X in [10, 190], Y in [110, 175]
+                                if (clientPt.x >= 10 && clientPt.x <= 190 && clientPt.y >= 110 && clientPt.y <= 175)
+                                {
+                                    IntPtr hMenu = CreatePopupMenu();
+                                    AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
+                                    SetForegroundWindow(s_mainHwnd);
+                                    int cmd = TrackPopupMenuEx(hMenu, 0x0100 | 0x0002, hs.pt.x, hs.pt.y, s_mainHwnd, IntPtr.Zero);
+                                    DestroyMenu(hMenu);
+
+                                    if (cmd == 101)
+                                    {
+                                        ThreadPool.QueueUserWorkItem(__ =>
+                                        {
+                                            RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                        });
+                                        return (IntPtr)1; // Consume event
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
+                };
+
+                s_mouseHook = SetWindowsHookEx(WH_MOUSE_LL, s_mouseHookProc, GetModuleHandle(null), 0);
+
+                // 4. Message Pump for Hooks
                 MSG msg;
                 while (GetMessage(out msg, IntPtr.Zero, 0, 0))
                 {
                     if (msg.message == WM_QUIT) break;
                     TranslateMessage(ref msg);
                     DispatchMessage(ref msg);
+                }
+
+                if (s_mouseHook != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(s_mouseHook);
+                    s_mouseHook = IntPtr.Zero;
                 }
 
                 if (hook != IntPtr.Zero)
@@ -350,16 +615,260 @@ namespace AI_ECG_Portable
             return t;
         }
 
-        private static void StopImportInterceptor(Thread thread)
+        private static void StopUnifiedInterceptor(Thread thread)
         {
             try
             {
+                if (s_mouseHook != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(s_mouseHook);
+                    s_mouseHook = IntPtr.Zero;
+                }
                 if (s_interceptorThreadId != 0)
                 {
                     PostThreadMessage(s_interceptorThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
                 }
             }
             catch {}
+        }
+
+        private static IntPtr FindMainWindow(int targetPid)
+        {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((hwnd, lParam) =>
+            {
+                uint pid;
+                GetWindowThreadProcessId(hwnd, out pid);
+                if (pid == (uint)targetPid)
+                {
+                    StringBuilder sbClass = new StringBuilder(256);
+                    GetClassName(hwnd, sbClass, 256);
+                    if (sbClass.ToString().Contains("Qt"))
+                    {
+                        IntPtr owner = GetWindow(hwnd, GW_OWNER);
+                        RECT r;
+                        GetWindowRect(hwnd, out r);
+                        int w = r.Right - r.Left;
+                        int h = r.Bottom - r.Top;
+                        if (owner == IntPtr.Zero && w >= 600 && h >= 400 && IsWindowVisible(hwnd))
+                        {
+                            found = hwnd;
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        private static void AttachSidebarAddButton(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (s_mainHwnd == IntPtr.Zero || !IsWindow(s_mainHwnd) || s_btnAddHwnd != IntPtr.Zero) return;
+
+            try
+            {
+                // Create native child button directly next to the 'User' header in the left sidebar
+                // Target bounds: X=88, Y=129, Width=82, Height=24
+                s_btnAddHwnd = CreateWindowEx(
+                    0,
+                    "BUTTON",
+                    "+ Add User",
+                    WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                    88, 129, 82, 24,
+                    s_mainHwnd,
+                    (IntPtr)9001,
+                    GetModuleHandle(null),
+                    IntPtr.Zero
+                );
+
+                if (s_btnAddHwnd != IntPtr.Zero)
+                {
+                    // Create Segoe UI 9pt bold font
+                    if (s_hBtnFont == IntPtr.Zero)
+                    {
+                        s_hBtnFont = CreateFont(
+                            -11, 0, 0, 0, 700, 0, 0, 0,
+                            1, 0, 0, 0, 0, "Segoe UI");
+                    }
+                    SendMessage(s_btnAddHwnd, WM_SETFONT, s_hBtnFont, (IntPtr)1);
+
+                    // Subclass button for custom GDI paint (matching Picture 1: #e8f4fd bg, subtle border, blue text)
+                    // and shield Qt from receiving mouse click activation events.
+                    s_btnWndProc = (IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam) =>
+                    {
+                        if (msg == WM_PAINT)
+                        {
+                            PAINTSTRUCT ps;
+                            IntPtr hdc = BeginPaint(hWnd, out ps);
+                            RECT rc;
+                            GetClientRect(hWnd, out rc);
+
+                            // Background:
+                            // Normal: #e8f4fd (0x00FDF4E8)
+                            // Hover:  #d6eefd (0x00FDEED6)
+                            // Pressed: #2ea2f8 (0x00F8A22E)
+                            uint bgCol = s_isPressed ? 0x00F8A22Eu : (s_isHovered ? 0x00FDEED6u : 0x00FDF4E8u);
+                            IntPtr hBrushBg = CreateSolidBrush(bgCol);
+                            FillRect(hdc, ref rc, hBrushBg);
+                            DeleteObject(hBrushBg);
+
+                            // 1px Border (matches Picture 1):
+                            // Normal: #5ba0dc (0x00DCA05B)
+                            // Hover/Pressed: #1d8ce0 (0x00E08C1D)
+                            uint borderCol = (s_isPressed || s_isHovered) ? 0x00E08C1Du : 0x00DCA05Bu;
+                            IntPtr hBrushBorder = CreateSolidBrush(borderCol);
+                            FrameRect(hdc, ref rc, hBrushBorder);
+                            DeleteObject(hBrushBorder);
+
+                            // Text:
+                            // Normal: #2ea2f8 (0x00F8A22E)
+                            // Hover:  #127fd4 (0x00D47F12)
+                            // Pressed: #ffffff (0x00FFFFFF)
+                            SetBkMode(hdc, 1); // TRANSPARENT
+                            uint textCol = s_isPressed ? 0x00FFFFFFu : (s_isHovered ? 0x00D47F12u : 0x00F8A22Eu);
+                            SetTextColor(hdc, textCol);
+                            IntPtr hOldFont = SelectObject(hdc, s_hBtnFont);
+                            DrawText(hdc, "+ Add User", -1, ref rc, 0x00000001 | 0x00000004 | 0x00000020);
+                            SelectObject(hdc, hOldFont);
+
+                            EndPaint(hWnd, ref ps);
+                            return IntPtr.Zero;
+                        }
+                        else if (msg == WM_ERASEBKGND)
+                        {
+                            return (IntPtr)1;
+                        }
+                        else if (msg == WM_SETCURSOR)
+                        {
+                            SetCursor(LoadCursor(IntPtr.Zero, IDC_HAND));
+                            return (IntPtr)1;
+                        }
+                        else if (msg == WM_MOUSEMOVE)
+                        {
+                            if (!s_isHovered)
+                            {
+                                s_isHovered = true;
+                                TRACKMOUSEEVENT tme = new TRACKMOUSEEVENT();
+                                tme.cbSize = (uint)Marshal.SizeOf(typeof(TRACKMOUSEEVENT));
+                                tme.dwFlags = 2; // TME_LEAVE
+                                tme.hwndTrack = hWnd;
+                                TrackMouseEvent(ref tme);
+                                InvalidateRect(hWnd, IntPtr.Zero, false);
+                            }
+                            return IntPtr.Zero;
+                        }
+                        else if (msg == WM_MOUSELEAVE)
+                        {
+                            s_isHovered = false;
+                            s_isPressed = false;
+                            InvalidateRect(hWnd, IntPtr.Zero, false);
+                            return IntPtr.Zero;
+                        }
+                        else if (msg == WM_LBUTTONDOWN)
+                        {
+                            s_isPressed = true;
+                            SetCapture(hWnd);
+                            InvalidateRect(hWnd, IntPtr.Zero, false);
+                            return IntPtr.Zero;
+                        }
+                        else if (msg == WM_LBUTTONUP)
+                        {
+                            bool wasPressed = s_isPressed;
+                            s_isPressed = false;
+                            ReleaseCapture();
+                            InvalidateRect(hWnd, IntPtr.Zero, false);
+
+                            if (wasPressed)
+                            {
+                                RECT rc;
+                                GetClientRect(hWnd, out rc);
+                                int x = (short)(lParam.ToInt32() & 0xFFFF);
+                                int y = (short)((lParam.ToInt32() >> 16) & 0xFFFF);
+                                if (x >= 0 && x <= rc.Right && y >= 0 && y <= rc.Bottom)
+                                {
+                                    ThreadPool.QueueUserWorkItem(_ =>
+                                    {
+                                        RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                    });
+                                }
+                            }
+                            return IntPtr.Zero;
+                        }
+
+                        return CallWindowProc(s_origBtnWndProc, hWnd, msg, wParam, lParam);
+                    };
+
+                    s_origBtnWndProc = SetWindowLong(s_btnAddHwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(s_btnWndProc));
+
+                    LogInterceptor(appDir, string.Format("Child + Add User button created successfully at (88, 129) on {0}", s_mainHwnd));
+                }
+            }
+            catch (Exception ex)
+            {
+                LogInterceptor(appDir, string.Format("Error attaching child button: {0}", ex.Message));
+            }
+        }
+
+        private static void RunAddUserModal(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (s_isAddUserModalRunning) return;
+            s_isAddUserModalRunning = true;
+
+            try
+            {
+                string pythonExe = ResolvePythonExecutable();
+                string scriptPath = Path.Combine(appDir, "manage_users.py");
+
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = pythonExe;
+                psi.Arguments = "\"" + scriptPath + "\" --add-gui";
+                psi.WorkingDirectory = appDir;
+                psi.UseShellExecute = false;
+
+                LogInterceptor(appDir, string.Format("RunAddUserModal launching: {0}", psi.Arguments));
+
+                AllowSetForegroundWindow(ASFW_ANY);
+                int exitCode = 0;
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit();
+                    exitCode = p.ExitCode;
+                }
+
+                LogInterceptor(appDir, string.Format("RunAddUserModal exitCode: {0}", exitCode));
+
+                if (exitCode == 2 || exitCode == 3)
+                {
+                    // User was created: sync databases
+                    try
+                    {
+                        if (Directory.Exists(hostEcgBrowserDir))
+                        {
+                            CopyDirectory(hostEcgBrowserDir, portableDataDir);
+                        }
+                    }
+                    catch {}
+
+                    if (exitCode == 2)
+                    {
+                        // Refresh requested: signal restart and close current process
+                        s_restartRequested = true;
+                        if (s_mainHwnd != IntPtr.Zero)
+                        {
+                            PostMessage(s_mainHwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogInterceptor(appDir, string.Format("RunAddUserModal exception: {0}", ex.Message));
+            }
+            finally
+            {
+                s_isAddUserModalRunning = false;
+            }
         }
 
         private static void RunImportModal(IntPtr dialogHwnd, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
@@ -435,6 +944,8 @@ namespace AI_ECG_Portable
             }
         }
 
+        #endregion
+
         private static void LogInterceptor(string appDir, string message)
         {
             try
@@ -457,8 +968,6 @@ namespace AI_ECG_Portable
 
             return "pythonw.exe";
         }
-
-        #endregion
 
         private static void UpdateConfigDataDir(string configPath, string normalizedDataDirPath)
         {

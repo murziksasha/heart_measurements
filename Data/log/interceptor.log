@@ -10,3 +10,21 @@
 [2026-10-06 23:38:23.008] EVENT_SHOW: HWND=13764520, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=387x273
 [2026-10-06 23:38:23.009] Matched Download dialog 13764520! Hiding and running modal...
 [2026-10-06 23:38:23.041] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:37:13.196] Interceptor started for PID 19016
+[2026-10-07 00:38:39.585] Matched Download dialog 7604364! Hiding and running modal...
+[2026-10-07 00:38:39.611] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:39:03.949] RunImportModal finished with exitCode 0
+[2026-10-07 00:39:08.313] Matched Download dialog 19988776! Hiding and running modal...
+[2026-10-07 00:39:08.348] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:43:08.497] RunImportModal finished with exitCode 0
+[2026-10-07 00:53:00.223] Unified interceptor started for PID 18548
+[2026-10-07 00:53:01.063] EVENT_SHOW main window 34342736
+[2026-10-07 00:53:01.085] Child + ADD button created successfully on 34342736
+[2026-10-07 00:54:33.271] Unified interceptor started for PID 10336
+[2026-10-07 00:54:34.064] EVENT_SHOW main window 17041892
+[2026-10-07 00:54:34.096] Child + ADD button created successfully on 17041892
+[2026-10-07 00:55:57.781] RunAddUserModal launching: "C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\manage_users.py" --add-gui
+[2026-10-07 00:56:13.881] Matched Download dialog 4589702! Hiding and running modal...
+[2026-10-07 00:56:13.923] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:56:40.035] RunImportModal finished with exitCode 0
+[2026-10-07 01:12:59.661] RunAddUserModal exitCode: -1

@@ -34,10 +34,22 @@ DIRECT FILE IMPORT (STANDALONE GUI):
 - Double-click "Import ECG.bat" to launch the Folder Import tool directly
   without requiring a physical USB connection.
 
+PATIENT / USER MANAGEMENT:
+- Click the "+ ADD" button in the Left Sidebar header next to "User" to create
+  a new patient profile.
+- Or right-click "All Users" in the sidebar and choose "+ Add User...".
+- Or double-click "Manage Users.bat" to view, add, or delete patient profiles.
+- When importing ECG files, you can also click "+ Add User" directly inside the
+  "Import Data" window.
+- Fields match original application: Patient Name (required), Gender, Birthday
+  (with live Age computation), E-mail, and Note/Remark.
+
 DIRECTORY STRUCTURE:
 - AI-ECG Portable.exe  : Portable launcher (run this file)
+- Manage Users.bat     : Patient Manager tool (add/list/manage patient profiles)
 - Manage Devices.bat   : Device Manager tool (bind/unbind device serial numbers)
 - Import ECG.bat       : Direct ECG file importer (graphical folder importer)
+- manage_users.py      : Patient profile management engine & Add User modal
 - import_gui.py        : Import GUI dialog (Choice modal & Folder import)
 - import_local_er1.py  : Core ECG file import & decompression engine
 - App/                 : Application binaries, Qt libraries, and drivers

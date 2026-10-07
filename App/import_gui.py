@@ -334,15 +334,32 @@ class FolderImportApp(tk.Tk):
         patient_options = [f"{u['name']} (ID: {u['id']})" for u in self.subusers]
         self.patient_var.set(patient_options[0] if patient_options else "Grygoriev (ID: 1)")
 
-        patient_dropdown = ttk.Combobox(
+        self.patient_dropdown = ttk.Combobox(
             patient_row,
             textvariable=self.patient_var,
             values=patient_options,
             state="readonly",
             font=("Segoe UI", 10),
-            width=30
+            width=28
         )
-        patient_dropdown.pack(side="left")
+        self.patient_dropdown.pack(side="left")
+
+        add_user_btn = tk.Button(
+            patient_row,
+            text="+ Add User",
+            font=("Segoe UI", 9, "bold"),
+            bg="#e8f4fd",
+            fg=PRIMARY_COLOR,
+            activebackground=PRIMARY_COLOR,
+            activeforeground="#ffffff",
+            relief="solid",
+            bd=1,
+            cursor="hand2",
+            padx=10,
+            pady=1,
+            command=self._on_add_patient_clicked
+        )
+        add_user_btn.pack(side="left", padx=(10, 0))
 
         # 3. Bottom Action & Selection Bar (Packed side="bottom" first to guarantee 100% visibility)
         action_bar = tk.Frame(self.folder_frame, bg="#edf2f7", padx=15, pady=8, relief="solid", bd=1)
@@ -459,6 +476,25 @@ class FolderImportApp(tk.Tk):
         if chosen:
             self.current_folder.set(chosen)
             self._load_folder(chosen)
+
+    def _on_add_patient_clicked(self):
+        try:
+            from manage_users import AddUserDialog
+
+            def on_user_added(new_user):
+                self.subusers = get_subusers()
+                patient_options = [f"{u['name']} (ID: {u['id']})" for u in self.subusers]
+                self.patient_dropdown['values'] = patient_options
+                new_opt = f"{new_user['name']} (ID: {new_user['id']})"
+                self.patient_var.set(new_opt)
+                # Re-scan folder records for uniqueness relative to newly selected user
+                folder = self.current_folder.get()
+                if folder and os.path.exists(folder):
+                    self._load_folder(folder)
+
+            AddUserDialog(self, on_success=on_user_added)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Add User dialog: {e}", parent=self)
 
     def _load_folder(self, folder_path):
         for item in self.tree.get_children():
