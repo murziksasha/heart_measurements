@@ -7,12 +7,18 @@ into the AI-ECG patient database. Supports active AppData and portable storage.
 
 import os
 import sys
+import re
 import glob
+import json
 import shutil
 import struct
 import sqlite3
 import array
+import ctypes
 from datetime import datetime
+
+_SERIAL_BEFORE_R = re.compile(r"(?<!\d)(\d{8,12})R")
+_SERIAL_EXACT = re.compile(r"^\d{8,12}$")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -172,6 +178,153 @@ def format_timestamp_display(ts_str):
         except Exception:
             pass
     return ts_str
+
+def guess_serial(names):
+    """Serial printed into Lepu filenames as '{sn}R{timestamp}'. Never invents one."""
+    for name in names:
+        base = os.path.basename(str(name))
+        match = _SERIAL_BEFORE_R.search(base)
+        if match:
+            return match.group(1)
+    for name in names:
+        base = os.path.basename(str(name))
+        if _SERIAL_EXACT.match(base):
+            return base
+    return None
+
+
+def format_file_size(num_bytes):
+    """Short file size for the import list."""
+    size = int(num_bytes or 0)
+    if size < 1024:
+        return "%d B" % size
+    if size < 1024 * 1024:
+        return "%d KB" % (size // 1024)
+    return "%.1f MB" % (size / (1024 * 1024))
+
+
+def format_report_chip(summary):
+    """One line from a saved AI report: rate range and the first diagnosis."""
+    if not summary:
+        return ""
+    parts = []
+    if summary.get("avg") is not None:
+        parts.append("%s avg" % summary["avg"])
+    if summary.get("min") is not None and summary.get("max") is not None:
+        parts.append("%s–%s" % (summary["min"], summary["max"]))
+    if summary.get("diagnosis"):
+        parts.append(summary["diagnosis"])
+    return " · ".join(parts)
+
+
+def load_report_summaries(subusr_id):
+    """
+    Map recording timestamp -> heart-rate summary from report JSON already on disk.
+    Filename shape: report_{patient}_{serial}_{timestamp}.json
+    """
+    found = {}
+    if subusr_id is None:
+        return found
+    for loc in get_target_locations():
+        folder = os.path.join(loc, "userfiles", "subusr", str(subusr_id))
+        if not os.path.isdir(folder):
+            continue
+        try:
+            names = os.listdir(folder)
+        except Exception:
+            continue
+        for name in names:
+            if not name.startswith("report_") or not name.endswith(".json"):
+                continue
+            parts = name[:-5].split("_")
+            if len(parts) < 4:
+                continue
+            timestamp = parts[-1]
+            path = os.path.join(folder, name)
+            summary = _read_report_summary(path)
+            if summary:
+                pdf_name = "Record_%s_%s_%sReport.pdf" % (subusr_id, parts[-2], timestamp)
+                summary["has_pdf"] = os.path.exists(os.path.join(folder, pdf_name))
+                found[timestamp] = summary
+    return found
+
+
+def _read_report_summary(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return None
+    diagnosis = ""
+    for item in data.get("diagnoseList") or []:
+        if isinstance(item, dict) and item.get("diagnoseInfo"):
+            diagnosis = str(item["diagnoseInfo"])
+            break
+    return {
+        "avg": data.get("averageHeartRate"),
+        "min": data.get("minHeartRate"),
+        "max": data.get("maxHeartRate"),
+        "diagnosis": diagnosis,
+        "has_pdf": False,
+    }
+
+
+def find_recording_sources():
+    """
+    Removable drives that look like an ER1 stick (R* files or an MKFS folder).
+    Serial is returned only when a filename actually contains one.
+    """
+    sources = []
+    try:
+        kernel32 = ctypes.windll.kernel32
+        bitmask = kernel32.GetLogicalDrives()
+    except Exception:
+        return sources
+
+    for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+        if not (bitmask & (1 << (ord(letter) - ord("A")))):
+            continue
+        drive = "%s:\\" % letter
+        try:
+            if kernel32.GetDriveTypeW(drive) != 2:
+                continue
+        except Exception:
+            continue
+        info = inspect_recording_folder(drive)
+        mkfs = os.path.join(drive, "MKFS")
+        if info["count"] <= 0 and not os.path.exists(mkfs):
+            continue
+        if info["serial"] is None and os.path.isdir(mkfs):
+            try:
+                info["serial"] = guess_serial(os.listdir(mkfs))
+            except Exception:
+                pass
+        sources.append({
+            "path": drive,
+            "count": info["count"],
+            "serial": info["serial"],
+        })
+    return sources
+
+
+def inspect_recording_folder(folder_path):
+    """Count top-level R* recordings and guess a serial from file names."""
+    names = []
+    count = 0
+    if os.path.isdir(folder_path):
+        try:
+            names = os.listdir(folder_path)
+        except Exception:
+            names = []
+        for name in names:
+            full = os.path.join(folder_path, name)
+            if os.path.isfile(full) and name.startswith("R"):
+                count += 1
+    return {"count": count, "serial": guess_serial(names)}
+
 
 def format_duration(seconds):
     """Formats duration seconds into human-readable string (e.g. 11 h 27 m or 45 m 10 s)."""
@@ -341,8 +494,9 @@ def import_single_file(filepath, sn=None, subusr_id=None, force=False):
         return False, "File too small (< 16 bytes)", ""
 
     default_sn, default_subusr = get_default_device_and_subuser()
+    file_sn = guess_serial([os.path.basename(filepath)])
     if sn is None:
-        sn = default_sn
+        sn = file_sn or default_sn
     if subusr_id is None:
         subusr_id = default_subusr
 

@@ -1,5 +1,11 @@
 @echo off
-title AI-ECG Portable - Device Manager
 cd /d "%~dp0"
-python manage_devices.py
-pause
+if exist "C:\Python312\pythonw.exe" (
+    start "" "C:\Python312\pythonw.exe" manage_devices.py
+    exit /b 0
+)
+if exist "C:\Python312\python.exe" (
+    start "" "C:\Python312\python.exe" manage_devices.py
+    exit /b 0
+)
+pythonw manage_devices.py

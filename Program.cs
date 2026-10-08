@@ -50,6 +50,9 @@ namespace AI_ECG_Portable
         private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
         [DllImport("user32.dll")]
+        private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+        [DllImport("user32.dll")]
         private static extern bool TranslateMessage([In] ref MSG lpMsg);
 
         [DllImport("user32.dll")]
@@ -125,6 +128,38 @@ namespace AI_ECG_Portable
 
         [DllImport("user32.dll")]
         private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+        // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE. The Qt window is per-monitor aware;
+        // this launcher is not, so child coordinates get shifted unless the thread is switched.
+        private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE = new IntPtr(-3);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDC(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+        [DllImport("gdi32.dll")]
+        private static extern uint GetPixel(IntPtr hdc, int x, int y);
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Auto)]
+        private static extern bool GetTextExtentPoint32(IntPtr hdc, string lpString, int c, out SIZE lpSize);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetTimer(IntPtr hWnd, IntPtr nIDEvent, uint uElapse, IntPtr lpTimerFunc);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SIZE
+        {
+            public int cx;
+            public int cy;
+        }
 
         [DllImport("user32.dll")]
         private static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
@@ -255,6 +290,9 @@ namespace AI_ECG_Portable
         private const int SW_SHOW = 5;
         private const uint WM_CLOSE = 0x0010;
         private const uint WM_QUIT = 0x0012;
+        private const uint WM_TIMER = 0x0113;
+        private const uint WM_APP_ATTACH = 0x8001;
+        private const uint SWP_NOACTIVATE = 0x0010;
         private const uint WM_PAINT = 0x000F;
         private const uint WM_ERASEBKGND = 0x0014;
         private const uint WM_SETCURSOR = 0x0020;
@@ -281,6 +319,10 @@ namespace AI_ECG_Portable
         private static bool s_restartRequested = false;
 
         private static IntPtr s_btnAddHwnd = IntPtr.Zero;
+        private static int s_btnX = -1;
+        private static int s_btnW = -1;
+        private static int s_sidebarRight = 215;
+        private static string s_btnText = "+ Add User";
         private static IntPtr s_origBtnWndProc = IntPtr.Zero;
         private static WndProcDelegate s_btnWndProc = null;
         private static bool s_isHovered = false;
@@ -390,6 +432,10 @@ namespace AI_ECG_Portable
                         shouldRun = false;
                         s_mainHwnd = IntPtr.Zero;
                         s_btnAddHwnd = IntPtr.Zero;
+                        s_btnX = -1;
+                        s_btnW = -1;
+                        s_sidebarRight = 215;
+                        s_btnText = "+ Add User";
 
                         using (Process process = Process.Start(psi))
                         {
@@ -455,6 +501,8 @@ namespace AI_ECG_Portable
             Thread t = new Thread(() =>
             {
                 s_interceptorThreadId = GetCurrentThreadId();
+                MSG queueReady;
+                PeekMessage(out queueReady, IntPtr.Zero, 0, 0, 0);
 
                 LogInterceptor(appDir, string.Format("Unified interceptor started for PID {0}", targetProcess.Id));
 
@@ -468,7 +516,9 @@ namespace AI_ECG_Portable
                         if (s_mainHwnd != IntPtr.Zero)
                         {
                             LogInterceptor(appDir, string.Format("Found MainWindow HWND: {0}", s_mainHwnd));
-                            AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                            // Create the button on the interceptor thread. Its window procedure
+                            // has to run there, or a later resize deadlocks SetWindowPos.
+                            PostThreadMessage(s_interceptorThreadId, WM_APP_ATTACH, IntPtr.Zero, IntPtr.Zero);
                             break;
                         }
                         Thread.Sleep(50);
@@ -561,10 +611,17 @@ namespace AI_ECG_Portable
                             {
                                 MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
                                 POINT clientPt = hs.pt;
-                                ScreenToClient(s_mainHwnd, ref clientPt);
 
-                                // All Users row bounds: X in [10, 190], Y in [110, 175]
-                                if (clientPt.x >= 10 && clientPt.x <= 190 && clientPt.y >= 110 && clientPt.y <= 175)
+                                // All Users row, in the Qt window's own pixels. This hook's thread
+                                // is otherwise DPI-unaware, which shifts the hit test on resize.
+                                IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+                                ScreenToClient(s_mainHwnd, ref clientPt);
+                                if (previousDpi != IntPtr.Zero)
+                                {
+                                    SetThreadDpiAwarenessContext(previousDpi);
+                                }
+                                int rowRight = s_sidebarRight > 40 ? s_sidebarRight : 215;
+                                if (clientPt.x >= 16 && clientPt.x <= rowRight && clientPt.y >= 134 && clientPt.y <= 168)
                                 {
                                     IntPtr hMenu = CreatePopupMenu();
                                     AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
@@ -589,11 +646,20 @@ namespace AI_ECG_Portable
 
                 s_mouseHook = SetWindowsHookEx(WH_MOUSE_LL, s_mouseHookProc, GetModuleHandle(null), 0);
 
-                // 4. Message Pump for Hooks
+                // 4. Message Pump for Hooks. The timer refits the button as the window is resized.
+                SetTimer(IntPtr.Zero, (IntPtr)1, 200, IntPtr.Zero);
                 MSG msg;
                 while (GetMessage(out msg, IntPtr.Zero, 0, 0))
                 {
                     if (msg.message == WM_QUIT) break;
+                    if (msg.message == WM_APP_ATTACH)
+                    {
+                        AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                    }
+                    if (msg.message == WM_TIMER)
+                    {
+                        PlaceAddUserButton();
+                    }
                     TranslateMessage(ref msg);
                     DispatchMessage(ref msg);
                 }
@@ -668,19 +734,26 @@ namespace AI_ECG_Portable
 
             try
             {
-                // Create native child button directly next to the 'User' header in the left sidebar
-                // Target bounds: X=88, Y=129, Width=82, Height=24
+                // Physical client pixels of the Qt window: the "User" label is
+                // y=110..125 and the All Users bar starts at y=137. A 24px button
+                // centered on that label sits at y=106 and clears the list.
+                // The label ends near x=88, so x=96 leaves a gap before the button.
+                IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
                 s_btnAddHwnd = CreateWindowEx(
                     0,
                     "BUTTON",
                     "+ Add User",
                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    88, 129, 82, 24,
+                    96, 106, 82, 24,
                     s_mainHwnd,
                     (IntPtr)9001,
                     GetModuleHandle(null),
                     IntPtr.Zero
                 );
+                if (previousDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(previousDpi);
+                }
 
                 if (s_btnAddHwnd != IntPtr.Zero)
                 {
@@ -729,7 +802,7 @@ namespace AI_ECG_Portable
                             uint textCol = s_isPressed ? 0x00FFFFFFu : (s_isHovered ? 0x00D47F12u : 0x00F8A22Eu);
                             SetTextColor(hdc, textCol);
                             IntPtr hOldFont = SelectObject(hdc, s_hBtnFont);
-                            DrawText(hdc, "+ Add User", -1, ref rc, 0x00000001 | 0x00000004 | 0x00000020);
+                            DrawText(hdc, s_btnText, -1, ref rc, 0x00000001 | 0x00000004 | 0x00000020);
                             SelectObject(hdc, hOldFont);
 
                             EndPaint(hWnd, ref ps);
@@ -800,14 +873,204 @@ namespace AI_ECG_Portable
                     };
 
                     s_origBtnWndProc = SetWindowLong(s_btnAddHwnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(s_btnWndProc));
+                    PlaceAddUserButton();
 
-                    LogInterceptor(appDir, string.Format("Child + Add User button created successfully at (88, 129) on {0}", s_mainHwnd));
+                    LogInterceptor(appDir, string.Format("Child + Add User button created successfully at ({0}, 106) on {1}", s_btnX, s_mainHwnd));
                 }
             }
             catch (Exception ex)
             {
                 LogInterceptor(appDir, string.Format("Error attaching child button: {0}", ex.Message));
             }
+        }
+
+        // Keep the button on the User header and inside the patient list.
+        // The list gets narrower when the window does; a fixed 82px button then covers Data ID.
+        private static void PlaceAddUserButton()
+        {
+            if (s_btnAddHwnd == IntPtr.Zero || s_mainHwnd == IntPtr.Zero) return;
+            if (!IsWindow(s_btnAddHwnd) || !IsWindow(s_mainHwnd)) return;
+
+            IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+            try
+            {
+                int edge = FindSidebarRight(s_mainHwnd);
+                if (edge < 80)
+                {
+                    // Patient list is collapsed or too narrow to host the button.
+                    // Leaving it at the old spot covers the Data ID column.
+                    if (IsWindowVisible(s_btnAddHwnd))
+                    {
+                        ShowWindow(s_btnAddHwnd, SW_HIDE);
+                    }
+                    s_btnX = -1;
+                    if (edge > 40) s_sidebarRight = edge;
+                    return;
+                }
+                s_sidebarRight = edge;
+
+                // Full label sits at x=96 and is 82px. A narrower list would run that
+                // into the Data ID column, so shorten the label to what still fits.
+                int maxRight = edge - 4;
+                int x = 96;
+                int available = maxRight - x;
+                if (available < 36)
+                {
+                    x = 90;
+                    available = maxRight - x;
+                }
+                if (available < 16)
+                {
+                    if (IsWindowVisible(s_btnAddHwnd))
+                    {
+                        ShowWindow(s_btnAddHwnd, SW_HIDE);
+                    }
+                    s_btnX = -1;
+                    return;
+                }
+
+                int width;
+                string text;
+                if (available >= 82)
+                {
+                    width = 82;
+                    text = "+ Add User";
+                }
+                else
+                {
+                    text = FitAddButtonText(available, out width);
+                }
+                if (x == s_btnX && width == s_btnW && text == s_btnText && IsWindowVisible(s_btnAddHwnd))
+                {
+                    return;
+                }
+
+                s_btnX = x;
+                s_btnW = width;
+                s_btnText = text;
+                SetWindowPos(s_btnAddHwnd, IntPtr.Zero, x, 106, width, 24, SWP_NOACTIVATE);
+                if (!IsWindowVisible(s_btnAddHwnd))
+                {
+                    ShowWindow(s_btnAddHwnd, SW_SHOW);
+                }
+                InvalidateRect(s_btnAddHwnd, IntPtr.Zero, false);
+            }
+            finally
+            {
+                if (previousDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(previousDpi);
+                }
+            }
+        }
+
+        private static string FitAddButtonText(int available, out int width)
+        {
+            string[] choices = { "+ Add User", "+ Add", "+" };
+            IntPtr hdc = GetDC(s_btnAddHwnd);
+            IntPtr old = IntPtr.Zero;
+            if (s_hBtnFont != IntPtr.Zero && hdc != IntPtr.Zero)
+            {
+                old = SelectObject(hdc, s_hBtnFont);
+            }
+            try
+            {
+                foreach (string choice in choices)
+                {
+                    int textWidth = choice.Length * 8;
+                    SIZE size;
+                    if (hdc != IntPtr.Zero && GetTextExtentPoint32(hdc, choice, choice.Length, out size))
+                    {
+                        textWidth = size.cx;
+                    }
+                    int needed = textWidth + 6;
+                    if (needed <= available)
+                    {
+                        width = needed;
+                        return choice;
+                    }
+                }
+            }
+            finally
+            {
+                if (old != IntPtr.Zero)
+                {
+                    SelectObject(hdc, old);
+                }
+                if (hdc != IntPtr.Zero)
+                {
+                    ReleaseDC(s_btnAddHwnd, hdc);
+                }
+            }
+
+            width = available;
+            return "+";
+        }
+
+        // Right edge of the light-blue patient list, in the Qt window's client pixels.
+        private static int FindSidebarRight(IntPtr hwnd)
+        {
+            RECT client;
+            if (!GetClientRect(hwnd, out client) || client.Right < 100 || client.Bottom < 120)
+            {
+                return -1;
+            }
+
+            IntPtr hdc = GetDC(hwnd);
+            if (hdc == IntPtr.Zero) return -1;
+            try
+            {
+                int limit = Math.Min(client.Right, 700);
+                int[] rows = new int[] { 100, 132 };
+                int best = -1;
+                foreach (int y in rows)
+                {
+                    if (y >= client.Bottom) continue;
+                    int start = -1;
+                    int end = -1;
+                    int gap = 0;
+                    for (int x = 0; x < limit; x++)
+                    {
+                        uint color = GetPixel(hdc, x, y);
+                        if (color == 0xFFFFFFFFu) continue;
+                        if (IsSidebarBlue(color))
+                        {
+                            if (start < 0) start = x;
+                            end = x;
+                            gap = 0;
+                        }
+                        else if (start >= 0)
+                        {
+                            gap++;
+                            if (gap > 4)
+                            {
+                                if (end - start > 50) break;
+                                start = -1;
+                                end = -1;
+                                gap = 0;
+                            }
+                        }
+                    }
+                    // The shorter edge wins, so a light-blue control in the table cannot pull the button over Data ID.
+                    if (start >= 0 && start < 80 && end - start > 50 && (best < 0 || end < best))
+                    {
+                        best = end;
+                    }
+                }
+                return best;
+            }
+            finally
+            {
+                ReleaseDC(hwnd, hdc);
+            }
+        }
+
+        private static bool IsSidebarBlue(uint color)
+        {
+            int r = (int)(color & 0xFF);
+            int g = (int)((color >> 8) & 0xFF);
+            int b = (int)((color >> 16) & 0xFF);
+            return r >= 210 && r <= 242 && g >= 228 && g <= 252 && b >= 246 && b > r + 8;
         }
 
         private static void RunAddUserModal(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
@@ -916,7 +1179,9 @@ namespace AI_ECG_Portable
 
                 if (exitCode == 2)
                 {
-                    // Sync newly imported files to portable storage
+                    // Sync newly imported files to portable storage, then restart
+                    // the Qt window so the patient list reloads. A fake click in the
+                    // sidebar misses when the window is scaled or scrolled.
                     try
                     {
                         if (Directory.Exists(hostEcgBrowserDir))
@@ -926,20 +1191,12 @@ namespace AI_ECG_Portable
                     }
                     catch {}
 
-                    Thread.Sleep(300);
-
-                    // Trigger UI table reload on main window
-                    try
+                    s_restartRequested = true;
+                    IntPtr mainHwnd = s_mainHwnd != IntPtr.Zero ? s_mainHwnd : targetProcess.MainWindowHandle;
+                    if (mainHwnd != IntPtr.Zero && IsWindow(mainHwnd))
                     {
-                        IntPtr mainHwnd = s_mainHwnd != IntPtr.Zero ? s_mainHwnd : targetProcess.MainWindowHandle;
-                        if (mainHwnd != IntPtr.Zero)
-                        {
-                            IntPtr lparam = (IntPtr)((165 << 16) | 90);
-                            PostMessage(mainHwnd, WM_LBUTTONDOWN, new IntPtr(1), lparam);
-                            PostMessage(mainHwnd, WM_LBUTTONUP, IntPtr.Zero, lparam);
-                        }
+                        PostMessage(mainHwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                     }
-                    catch {}
                 }
             }
         }

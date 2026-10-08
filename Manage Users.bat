@@ -1,5 +1,11 @@
 @echo off
-title AI-ECG Portable - User Management
 cd /d "%~dp0"
-python manage_users.py
-pause
+if exist "C:\Python312\pythonw.exe" (
+    start "" "C:\Python312\pythonw.exe" manage_users.py
+    exit /b 0
+)
+if exist "C:\Python312\python.exe" (
+    start "" "C:\Python312\python.exe" manage_users.py
+    exit /b 0
+)
+pythonw manage_users.py

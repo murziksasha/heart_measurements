@@ -1,689 +1,504 @@
 #!/usr/bin/env python3
 """
-AI-ECG Analysis Portable - Import Modal GUI
-Presents a dual-variant choice view (From Device vs From Folder)
-and an interactive Folder Import table for selecting, verifying, and importing ER1 files.
-Single top-level window architecture ensuring immediate foreground visibility.
+Import recordings from a folder or an ER1 USB drive.
+
+One window: pick the patient, see each recording, import on a background thread.
+Exit codes used by the portable launcher:
+  0 cancel, 1 open the original device dialog, 2 recordings were imported.
 """
 
 import os
 import sys
-import ctypes
-from ctypes import wintypes
+import queue
+import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog
 
 from import_local_er1 import (
     scan_folder_records,
-    import_records,
-    get_subusers,
-    format_duration
+    import_single_file,
+    find_recording_sources,
+    load_report_summaries,
+    format_report_chip,
+    format_file_size,
+)
+from manage_users import AddUserDialog, get_all_subusers
+from ui_theme import (
+    BG, CARD, BORDER, TEXT, MUTED, PRIMARY, SUCCESS, WARNING, ERROR, ROW_ALT, STRIPE,
+    FONT, FONT_BOLD, FONT_SMALL, FONT_TITLE,
+    apply_theme, button, center,
 )
 
-APP_TITLE = "ECG Data Management - Import Data"
-PRIMARY_COLOR = "#2ea2f8"
-PRIMARY_HOVER = "#1a8de4"
-TEXT_COLOR = "#2c3e50"
-BG_COLOR = "#f8fafd"
-CARD_BG = "#ffffff"
-BORDER_COLOR = "#dce4ec"
-SUCCESS_COLOR = "#27ae60"
-MUTED_COLOR = "#7f8c8d"
+APP_TITLE = "Import recordings"
 
 
-def find_er1_usb_drive():
-    """Scans for ER1 USB drive (removable drive containing R* recordings)."""
+def patient_label(user):
+    return "%s · %s · %s · %s recordings (ID: %s)" % (
+        user["name"], user["age"], user["gender"], user["records"], user["id"],
+    )
+
+
+def patient_id_from_label(label):
+    if "(ID:" not in label:
+        return 1
     try:
-        kernel32 = ctypes.windll.kernel32
-        bitmask = kernel32.GetLogicalDrives()
-        removable_drives = []
-        for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
-            if bitmask & (1 << (ord(letter) - ord("A"))):
-                drive = f"{letter}:\\"
-                dtype = kernel32.GetDriveTypeW(drive)
-                if dtype == 2:  # DRIVE_REMOVABLE
-                    try:
-                        r_files = [
-                            f for f in os.listdir(drive)
-                            if f.startswith("R") and os.path.isfile(os.path.join(drive, f))
-                        ]
-                        if r_files:
-                            return drive
-                    except Exception:
-                        pass
-                    removable_drives.append(drive)
-        return removable_drives[0] if removable_drives else None
-    except Exception:
-        return None
-
-
-def refresh_main_window():
-    """Signals ECG Data Management main window to refresh its records table."""
-    try:
-        user32 = ctypes.windll.user32
-
-        class RECT(ctypes.Structure):
-            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-        target_hwnd = None
-
-        def enum_cb(hwnd, lparam):
-            nonlocal target_hwnd
-            cls_buf = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd, cls_buf, 256)
-            if "Qt" in cls_buf.value:
-                owner = user32.GetWindow(hwnd, 4)  # GW_OWNER
-                if owner == 0:
-                    r = RECT()
-                    user32.GetWindowRect(hwnd, ctypes.byref(r))
-                    if (r.right - r.left) >= 600:
-                        target_hwnd = hwnd
-                        return False
-            return True
-
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-
-        if not target_hwnd:
-            target_hwnd = user32.FindWindowW("Qt5152QWindowIcon", "ECG Data Management")
-
-        if target_hwnd:
-            # Click on Grygoriev patient item in left sidebar (x=90, y=165)
-            lparam = (165 << 16) | 90
-            user32.PostMessageW(target_hwnd, 0x0201, 1, lparam)  # WM_LBUTTONDOWN
-            user32.PostMessageW(target_hwnd, 0x0202, 0, lparam)  # WM_LBUTTONUP
-    except Exception:
-        pass
+        return int(label.split("(ID:")[1].split(")")[0].strip())
+    except (IndexError, ValueError):
+        return 1
 
 
 class FolderImportApp(tk.Tk):
-    """Unified Import Dialog supporting Choice screen and Folder Import screen."""
+    """Single import window. `mode` is accepted so older launchers keep working."""
+
     def __init__(self, mode="choice", initial_dir=None):
         super().__init__()
-        self.configure(bg=BG_COLOR)
+        del mode
+        self.title(APP_TITLE)
+        self.configure(bg=BG)
+        apply_theme(self)
+        self.minsize(860, 560)
+        center(self, 980, 660)
 
-        self.initial_dir = initial_dir or r"C:\Users\user\Downloads\ER1"
-        if not os.path.exists(self.initial_dir):
-            self.initial_dir = os.path.expanduser(r"~\Downloads")
-
-        self.current_folder = tk.StringVar(value=self.initial_dir)
-        self.patient_var = tk.StringVar()
-        self.records_data = []
-        self.item_checkboxes = {}
+        self._queue = queue.Queue()
+        self._busy = False
+        self._imported_any = False
+        self._suppress_patient = False
+        self._sources = []
+        self.records = []
         self.exit_code = 0
 
-        self._init_styles()
+        self.initial_dir = self._starting_folder(initial_dir)
+        self.current_folder = tk.StringVar(value=self.initial_dir)
+        self.patient_var = tk.StringVar()
+        self.new_only = tk.BooleanVar(value=False)
+        self.summary_var = tk.StringVar(value="")
+        self.banner_var = tk.StringVar(value="")
 
-        # Container frames for smooth in-window switching
-        self.choice_frame = tk.Frame(self, bg=BG_COLOR)
-        self.folder_frame = tk.Frame(self, bg=BG_COLOR)
-
-        self._build_choice_ui()
-        self._build_folder_ui()
-
+        self._build()
+        self._reload_patients()
+        self._refresh_sources()
+        self._load_folder(self.current_folder.get())
         self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda _event: self._cancel())
+        self._poll_after = self.after(80, self._poll)
+        self._top_after = None
 
-        if mode == "choice":
-            self.title("Import ECG - Select Source")
-            self.geometry("540x360")
-            self.resizable(False, False)
-            self._center_window(540, 360)
-            self.choice_frame.pack(fill="both", expand=True)
-        else:
-            self.title(APP_TITLE)
-            self.geometry("880x560")
-            self.minsize(760, 460)
-            self.resizable(True, True)
-            self._center_window(880, 560)
-            self.folder_frame.pack(fill="both", expand=True)
-            self._load_folder(self.current_folder.get())
-
-        # Ensure window is always brought to top and focused
         self.attributes("-topmost", True)
-        self.after(400, lambda: self.attributes("-topmost", False))
+        self._top_after = self.after(400, self._drop_topmost)
         self.lift()
         self.focus_force()
 
-    def _center_window(self, width, height):
-        self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        x = max(0, (sw - width) // 2)
-        y = max(0, (sh - height) // 2)
-        self.geometry(f"{width}x{height}+{x}+{y}")
+    def _drop_topmost(self):
+        self._top_after = None
+        if self.winfo_exists():
+            self.attributes("-topmost", False)
 
-    def _init_styles(self):
-        style = ttk.Style(self)
-        style.theme_use("clam")
+    def destroy(self):
+        for job in (getattr(self, "_poll_after", None), getattr(self, "_top_after", None)):
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+        self._poll_after = None
+        self._top_after = None
+        try:
+            self.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
+        super().destroy()
 
-        style.configure(
-            "Treeview",
-            background="#ffffff",
-            foreground=TEXT_COLOR,
-            fieldbackground="#ffffff",
-            font=("Segoe UI", 10),
-            rowheight=32,
-            borderwidth=1
-        )
-        style.configure(
-            "Treeview.Heading",
-            background="#f1f5f9",
-            foreground="#34495e",
-            font=("Segoe UI", 10, "bold"),
-            borderwidth=1,
-            relief="flat"
-        )
-        style.map("Treeview", background=[("selected", "#e3f2fd")], foreground=[("selected", TEXT_COLOR)])
+    def _starting_folder(self, initial_dir):
+        if initial_dir and os.path.isdir(initial_dir):
+            return initial_dir
+        sources = find_recording_sources()
+        if sources:
+            return sources[0]["path"]
+        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+        er1 = os.path.join(downloads, "ER1")
+        if os.path.isdir(er1):
+            return er1
+        if os.path.isdir(downloads):
+            return downloads
+        return os.path.expanduser("~")
 
-    # -------------------------------------------------------------
-    # Choice Screen UI
-    # -------------------------------------------------------------
-    def _build_choice_ui(self):
-        header = tk.Frame(self.choice_frame, bg=PRIMARY_COLOR, height=75)
+    def _build(self):
+        tk.Frame(self, bg=PRIMARY, height=4).pack(fill="x")
+
+        header = tk.Frame(self, bg=CARD, padx=20, pady=12, highlightthickness=1, highlightbackground=BORDER)
         header.pack(fill="x")
-        header.pack_propagate(False)
-
-        title_lbl = tk.Label(
+        tk.Label(header, text=APP_TITLE, font=FONT_TITLE, fg=TEXT, bg=CARD).pack(anchor="w")
+        tk.Label(
             header,
-            text="📥  Import ECG Recording",
-            font=("Segoe UI", 16, "bold"),
-            fg="white",
-            bg=PRIMARY_COLOR
+            text="New recordings are selected. Imported ones stay unchecked unless you choose to replace them.",
+            font=FONT_SMALL,
+            fg=MUTED,
+            bg=CARD,
+        ).pack(anchor="w", pady=(2, 0))
+
+        controls = tk.Frame(self, bg=CARD, padx=16, pady=12, highlightthickness=1, highlightbackground=BORDER)
+        controls.pack(fill="x", padx=16, pady=(12, 8))
+
+        patient_row = tk.Frame(controls, bg=CARD)
+        patient_row.pack(fill="x", pady=(0, 8))
+        tk.Label(patient_row, text="Patient", font=FONT_BOLD, fg=TEXT, bg=CARD).pack(side="left")
+        self.patient_combo = ttk.Combobox(
+            patient_row, textvariable=self.patient_var, state="readonly", font=FONT, width=52,
         )
-        title_lbl.pack(pady=(12, 2))
+        self.patient_combo.pack(side="left", padx=(10, 8))
+        self.patient_var.trace_add("write", self._on_patient_changed)
+        button(patient_row, "New patient", self._add_patient, kind="quiet").pack(side="left")
 
-        sub_lbl = tk.Label(
-            header,
-            text="Choose your recording source to begin analysis",
-            font=("Segoe UI", 9),
-            fg="#e3f2fd",
-            bg=PRIMARY_COLOR
+        folder_row = tk.Frame(controls, bg=CARD)
+        folder_row.pack(fill="x")
+        tk.Label(folder_row, text="Source", font=FONT_BOLD, fg=TEXT, bg=CARD).pack(side="left")
+        entry = tk.Entry(
+            folder_row, textvariable=self.current_folder, font=FONT, relief="flat",
+            highlightthickness=1, highlightbackground=BORDER, highlightcolor=PRIMARY,
         )
-        sub_lbl.pack()
+        entry.pack(side="left", fill="x", expand=True, padx=(10, 8), ipady=3)
+        entry.bind("<Return>", lambda _event: self._load_folder(self.current_folder.get()))
+        button(folder_row, "Browse", self._browse).pack(side="left")
+        self.chip = button(folder_row, "No ER1 drive detected", self._use_detected_drive, kind="quiet")
+        self.chip.pack(side="left", padx=(8, 0))
 
-        content = tk.Frame(self.choice_frame, bg=BG_COLOR, padx=30, pady=25)
-        content.pack(fill="both", expand=True)
+        list_head = tk.Frame(self, bg=STRIPE, padx=16, pady=6)
+        list_head.pack(fill="x", padx=16)
+        for text, width in ((" ", 4), ("When", 28), ("Length", 12), ("Size", 10)):
+            tk.Label(list_head, text=text, font=FONT_BOLD, fg=TEXT, bg=STRIPE, width=width, anchor="w").pack(side="left")
+        tk.Label(list_head, text="State", font=FONT_BOLD, fg=TEXT, bg=STRIPE, anchor="w").pack(side="left", fill="x", expand=True)
 
-        dev_btn = tk.Button(
-            content,
-            text="📱  From Device\nDirectly download recordings from connected ER1 via USB",
-            font=("Segoe UI", 11, "bold"),
-            bg="#ffffff",
-            fg=TEXT_COLOR,
-            activebackground="#eef7fe",
-            activeforeground=PRIMARY_COLOR,
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            justify="center",
-            pady=12,
-            command=self._on_device_choice_clicked
-        )
-        dev_btn.pack(fill="x", pady=(0, 15))
+        table = tk.Frame(self, bg=BG, padx=16)
+        table.pack(fill="both", expand=True, pady=(0, 8))
+        self.canvas = tk.Canvas(table, bg=BG, highlightthickness=0)
+        scroll = ttk.Scrollbar(table, orient="vertical", command=self.canvas.yview)
+        self.rows = tk.Frame(self.canvas, bg=BG)
+        self._rows_window = self.canvas.create_window((0, 0), window=self.rows, anchor="nw")
+        self.rows.bind("<Configure>", lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", self._stretch_rows)
+        self.canvas.configure(yscrollcommand=scroll.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.canvas.bind("<Enter>", lambda _event: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
+        self.canvas.bind("<Leave>", lambda _event: self.canvas.unbind_all("<MouseWheel>"))
 
-        folder_btn = tk.Button(
-            content,
-            text="📁  From Folder\nSelect folder with files from ER1 (e.g. Downloads\\ER1)",
-            font=("Segoe UI", 11, "bold"),
-            bg="#ffffff",
-            fg=PRIMARY_COLOR,
-            activebackground="#eef7fe",
-            activeforeground=PRIMARY_HOVER,
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            justify="center",
-            pady=12,
-            command=self._on_folder_choice_clicked
-        )
-        folder_btn.pack(fill="x", pady=(0, 10))
+        self.banner = tk.Label(self, textvariable=self.banner_var, font=FONT, fg=SUCCESS, bg=BG, anchor="w", justify="left")
+        self.banner.pack(fill="x", padx=18)
 
-    def _on_device_choice_clicked(self):
-        er1_drive = find_er1_usb_drive()
-        if er1_drive:
-            self._switch_to_folder(er1_drive)
-        else:
-            ans = messagebox.askquestion(
-                "Device Not Connected",
-                "No ER1 device was detected via USB.\n\n"
-                "Would you like to import from folder (e.g. copied files) instead?",
-                icon="warning",
-                parent=self
-            )
-            if ans == "yes":
-                self._switch_to_folder()
-            else:
-                self.exit_code = 1
-                self.destroy()
+        self.progress = ttk.Progressbar(self, mode="determinate")
 
-    def _on_folder_choice_clicked(self):
-        self._switch_to_folder()
+        footer = tk.Frame(self, bg=STRIPE, padx=12, pady=10, highlightthickness=1, highlightbackground=BORDER)
+        footer.pack(fill="x", side="bottom")
+        button(footer, "Select new", self._select_new).pack(side="left")
+        button(footer, "Clear", self._clear_selection).pack(side="left", padx=(8, 0))
+        tk.Checkbutton(
+            footer, text="New only", variable=self.new_only, command=self._render_rows,
+            font=FONT, bg=STRIPE, fg=TEXT, activebackground=STRIPE, selectcolor=CARD, cursor="hand2",
+        ).pack(side="left", padx=(12, 0))
+        tk.Label(footer, textvariable=self.summary_var, font=FONT_SMALL, fg=MUTED, bg=STRIPE).pack(side="left", padx=(12, 0))
 
-    def _switch_to_folder(self, target_folder=None):
-        self.choice_frame.pack_forget()
-        self.title(APP_TITLE)
-        self.geometry("880x560")
-        self.minsize(760, 460)
-        self.resizable(True, True)
-        self._center_window(880, 560)
-        self.folder_frame.pack(fill="both", expand=True)
-
-        folder = target_folder or self.current_folder.get()
-        if target_folder:
-            self.current_folder.set(target_folder)
-        self._load_folder(folder)
-
-        self.attributes("-topmost", True)
-        self.after(300, lambda: self.attributes("-topmost", False))
-        self.lift()
-        self.focus_force()
-
-    # -------------------------------------------------------------
-    # Folder Import Screen UI
-    # -------------------------------------------------------------
-    def _build_folder_ui(self):
-        top_bar = tk.Frame(self.folder_frame, bg=PRIMARY_COLOR, height=50)
-        top_bar.pack(fill="x")
-        top_bar.pack_propagate(False)
-
-        top_title = tk.Label(
-            top_bar,
-            text="📁  Import ER1 Recordings",
-            font=("Segoe UI", 13, "bold"),
-            fg="white",
-            bg=PRIMARY_COLOR
-        )
-        top_title.pack(side="left", padx=20, pady=10)
-
-        control_card = tk.Frame(self.folder_frame, bg=CARD_BG, padx=15, pady=10, relief="solid", bd=1)
-        control_card.pack(fill="x", padx=20, pady=(10, 8))
-
-        folder_row = tk.Frame(control_card, bg=CARD_BG)
-        folder_row.pack(fill="x", pady=(0, 6))
-
-        folder_lbl = tk.Label(folder_row, text="Source Folder:", font=("Segoe UI", 10, "bold"), bg=CARD_BG, fg=TEXT_COLOR)
-        folder_lbl.pack(side="left", padx=(0, 10))
-
-        folder_entry = tk.Entry(folder_row, textvariable=self.current_folder, font=("Segoe UI", 10), relief="solid", bd=1)
-        folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 10), ipady=2)
-
-        browse_btn = tk.Button(
-            folder_row,
-            text="Browse...",
-            font=("Segoe UI", 9, "bold"),
-            bg="#f0f4f8",
-            fg=TEXT_COLOR,
-            activebackground="#e2e8f0",
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            padx=12,
-            pady=2,
-            command=self._browse_folder
-        )
-        browse_btn.pack(side="right")
-
-        patient_row = tk.Frame(control_card, bg=CARD_BG)
-        patient_row.pack(fill="x")
-
-        patient_lbl = tk.Label(patient_row, text="Assign to Patient:", font=("Segoe UI", 10, "bold"), bg=CARD_BG, fg=TEXT_COLOR)
-        patient_lbl.pack(side="left", padx=(0, 10))
-
-        self.subusers = get_subusers()
-        patient_options = [f"{u['name']} (ID: {u['id']})" for u in self.subusers]
-        self.patient_var.set(patient_options[0] if patient_options else "Grygoriev (ID: 1)")
-
-        self.patient_dropdown = ttk.Combobox(
-            patient_row,
-            textvariable=self.patient_var,
-            values=patient_options,
-            state="readonly",
-            font=("Segoe UI", 10),
-            width=28
-        )
-        self.patient_dropdown.pack(side="left")
-
-        add_user_btn = tk.Button(
-            patient_row,
-            text="+ Add User",
-            font=("Segoe UI", 9, "bold"),
-            bg="#e8f4fd",
-            fg=PRIMARY_COLOR,
-            activebackground=PRIMARY_COLOR,
-            activeforeground="#ffffff",
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            padx=10,
-            pady=1,
-            command=self._on_add_patient_clicked
-        )
-        add_user_btn.pack(side="left", padx=(10, 0))
-
-        # 3. Bottom Action & Selection Bar (Packed side="bottom" first to guarantee 100% visibility)
-        action_bar = tk.Frame(self.folder_frame, bg="#edf2f7", padx=15, pady=8, relief="solid", bd=1)
-        action_bar.pack(side="bottom", fill="x")
-
-        sel_all_btn = tk.Button(
-            action_bar,
-            text="Select All New",
-            font=("Segoe UI", 9),
-            bg="#ffffff",
-            fg=TEXT_COLOR,
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            padx=10,
-            pady=4,
-            command=self._select_all_new
-        )
-        sel_all_btn.pack(side="left", padx=(0, 8))
-
-        desel_btn = tk.Button(
-            action_bar,
-            text="Deselect All",
-            font=("Segoe UI", 9),
-            bg="#ffffff",
-            fg=TEXT_COLOR,
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            padx=10,
-            pady=4,
-            command=self._deselect_all
-        )
-        desel_btn.pack(side="left", padx=(0, 15))
-
-        self.summary_lbl = tk.Label(
-            action_bar,
-            text="",
-            font=("Segoe UI", 9, "bold"),
-            bg="#edf2f7",
-            fg=MUTED_COLOR
-        )
-        self.summary_lbl.pack(side="left")
-
-        cancel_btn = tk.Button(
-            action_bar,
-            text="Cancel",
-            font=("Segoe UI", 9),
-            bg="#ffffff",
-            fg=TEXT_COLOR,
-            activebackground="#e2e8f0",
-            relief="solid",
-            bd=1,
-            cursor="hand2",
-            padx=18,
-            pady=4,
-            command=self._cancel
-        )
-        cancel_btn.pack(side="right", padx=(10, 0))
-
-        self.import_btn = tk.Button(
-            action_bar,
-            text="Import Selected Recordings (0)",
-            font=("Segoe UI", 9, "bold"),
-            bg=PRIMARY_COLOR,
-            fg="white",
-            activebackground=PRIMARY_HOVER,
-            activeforeground="white",
-            relief="flat",
-            cursor="hand2",
-            padx=20,
-            pady=5,
-            command=self._do_import
-        )
+        button(footer, "Original device import", self._open_vendor, kind="quiet").pack(side="right", padx=(8, 0))
+        button(footer, "Close", self._cancel).pack(side="right", padx=(8, 0))
+        self.import_btn = button(footer, "Import recordings", self._do_import, kind="primary")
         self.import_btn.pack(side="right")
 
-        # 4. Table Panel (Fills all remaining vertical space in center)
-        table_frame = tk.Frame(self.folder_frame, bg=BG_COLOR, padx=20)
-        table_frame.pack(side="top", fill="both", expand=True, pady=(0, 10))
+    def _stretch_rows(self, event):
+        self.canvas.itemconfigure(self._rows_window, width=event.width)
 
-        columns = ("select", "filename", "time", "duration", "status")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
+    def _on_wheel(self, event):
+        self.canvas.yview_scroll(int(-event.delta / 120), "units")
 
-        self.tree.heading("select", text="[✓]", anchor="center")
-        self.tree.heading("filename", text="Recording File", anchor="w")
-        self.tree.heading("time", text="Recording Start Time", anchor="center")
-        self.tree.heading("duration", text="Duration", anchor="center")
-        self.tree.heading("status", text="Uniqueness / Status", anchor="center")
+    def _reload_patients(self, select_id=None):
+        self._patients = get_all_subusers()
+        labels = [patient_label(user) for user in self._patients]
+        self.patient_combo["values"] = labels
+        chosen = labels[0] if labels else ""
+        if select_id is not None:
+            for user, label in zip(self._patients, labels):
+                if user["id"] == select_id:
+                    chosen = label
+                    break
+        self._suppress_patient = True
+        self.patient_var.set(chosen)
+        self._suppress_patient = False
 
-        self.tree.column("select", width=55, minwidth=50, anchor="center")
-        self.tree.column("filename", width=190, minwidth=140, anchor="w")
-        self.tree.column("time", width=190, minwidth=160, anchor="center")
-        self.tree.column("duration", width=130, minwidth=110, anchor="center")
-        self.tree.column("status", width=200, minwidth=160, anchor="center")
+    def _selected_patient_id(self):
+        return patient_id_from_label(self.patient_var.get())
 
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
+    def _on_patient_changed(self, *_args):
+        if self._suppress_patient or self._busy:
+            return
+        folder = self.current_folder.get()
+        if folder:
+            self._load_folder(folder)
 
-        self.tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+    def _add_patient(self):
+        if self._busy:
+            return
 
-        self.tree.bind("<Button-1>", self._on_tree_click)
-        self.tree.bind("<space>", self._on_tree_space)
+        def added(user):
+            self._reload_patients(select_id=user["id"])
+            self._load_folder(self.current_folder.get())
 
-    def _browse_folder(self):
-        initial = self.current_folder.get()
-        if not os.path.exists(initial):
-            initial = r"C:\Users\user\Downloads"
-        chosen = filedialog.askdirectory(
-            parent=self,
-            title="Select Folder with ER1 Recordings",
-            initialdir=initial
+        AddUserDialog(self, on_success=added)
+
+    def _refresh_sources(self):
+        self._sources = find_recording_sources()
+        if not self._sources:
+            self.chip.config(text="No ER1 drive detected", state="disabled")
+            return
+        source = self._sources[0]
+        serial = (" · SN " + source["serial"]) if source["serial"] else " · serial not on the files"
+        self.chip.config(
+            text="%s · %d files%s" % (source["path"], source["count"], serial),
+            state="normal",
         )
+
+    def _use_detected_drive(self):
+        if self._busy or not self._sources:
+            return
+        self.current_folder.set(self._sources[0]["path"])
+        self._load_folder(self._sources[0]["path"])
+
+    def _browse(self):
+        if self._busy:
+            return
+        initial = self.current_folder.get()
+        if not os.path.isdir(initial):
+            initial = os.path.expanduser("~")
+        chosen = filedialog.askdirectory(parent=self, title="Folder with ER1 recordings", initialdir=initial)
         if chosen:
             self.current_folder.set(chosen)
             self._load_folder(chosen)
 
-    def _on_add_patient_clicked(self):
-        try:
-            from manage_users import AddUserDialog
-
-            def on_user_added(new_user):
-                self.subusers = get_subusers()
-                patient_options = [f"{u['name']} (ID: {u['id']})" for u in self.subusers]
-                self.patient_dropdown['values'] = patient_options
-                new_opt = f"{new_user['name']} (ID: {new_user['id']})"
-                self.patient_var.set(new_opt)
-                # Re-scan folder records for uniqueness relative to newly selected user
-                folder = self.current_folder.get()
-                if folder and os.path.exists(folder):
-                    self._load_folder(folder)
-
-            AddUserDialog(self, on_success=on_user_added)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open Add User dialog: {e}", parent=self)
-
     def _load_folder(self, folder_path):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.records_data.clear()
-        self.item_checkboxes.clear()
-
-        if not os.path.exists(folder_path):
-            self.summary_lbl.config(text="Folder not found.", fg="#e74c3c")
+        self.records = []
+        if not folder_path or not os.path.isdir(folder_path):
+            self.summary_var.set("Folder not found.")
+            self._render_rows()
             self._update_import_button()
             return
 
-        subusr_id = self._get_selected_subuser_id()
-        records = scan_folder_records(folder_path, subusr_id=subusr_id)
-        self.records_data = records
+        patient_id = self._selected_patient_id()
+        reports = load_report_summaries(patient_id)
+        records = scan_folder_records(folder_path, subusr_id=patient_id)
+        records.sort(key=lambda item: item["timestamp"], reverse=True)
+        for record in records:
+            record["checked"] = not record["is_duplicate"]
+            record["report"] = format_report_chip(reports.get(record["timestamp"]))
+            record["_var"] = None
+        self.records = records
+        self._render_rows()
+        self._update_summary()
+        self._update_import_button()
 
-        if not records:
-            self.summary_lbl.config(text="No ER1 files (R*) found in folder.", fg=MUTED_COLOR)
+    def _render_rows(self):
+        for child in self.rows.winfo_children():
+            child.destroy()
+        for record in self.records:
+            record["_var"] = None
+
+        visible = [
+            record for record in self.records
+            if not (self.new_only.get() and record["is_duplicate"])
+        ]
+        if not visible:
+            text = "No ER1 recordings in this folder." if not self.records else "No new recordings. Turn off New only to see imported ones."
+            tk.Label(self.rows, text=text, font=FONT, fg=MUTED, bg=BG, pady=24).pack(anchor="w")
+            return
+
+        for index, record in enumerate(visible):
+            self._build_row(record, index % 2 == 1)
+
+    def _build_row(self, record, alt):
+        bg = ROW_ALT if alt else CARD
+        style = "Alt.TCheckbutton" if alt else "TCheckbutton"
+        row = tk.Frame(self.rows, bg=bg, padx=8, pady=6)
+        row.pack(fill="x")
+
+        var = tk.BooleanVar(value=record["checked"])
+        record["_var"] = var
+
+        def toggle(*_args):
+            record["checked"] = bool(var.get())
+            self._paint_state(state, record)
+            self._update_summary()
             self._update_import_button()
+
+        var.trace_add("write", toggle)
+        ttk.Checkbutton(row, variable=var, style=style).pack(side="left", padx=(4, 8))
+
+        when = tk.Frame(row, bg=bg)
+        when.pack(side="left", padx=(0, 12))
+        when_title = tk.Label(when, text=record["datetime_display"], font=FONT_BOLD, fg=TEXT, bg=bg)
+        when_title.pack(anchor="w")
+        when_file = tk.Label(when, text=record["filename"], font=FONT_SMALL, fg=MUTED, bg=bg)
+        when_file.pack(anchor="w")
+
+        length = tk.Label(row, text=record["duration_display"], font=FONT, fg=TEXT, bg=bg, width=12, anchor="w")
+        length.pack(side="left")
+        size = tk.Label(row, text=format_file_size(record["file_size"]), font=FONT, fg=TEXT, bg=bg, width=10, anchor="w")
+        size.pack(side="left")
+        state = tk.Label(row, text="", font=FONT, bg=bg, anchor="w", justify="left")
+        state.pack(side="left", fill="x", expand=True)
+        self._paint_state(state, record)
+
+        def flip(_event, target=var):
+            if not self._busy:
+                target.set(not target.get())
+
+        for widget in (row, when, when_title, when_file, length, size, state):
+            widget.bind("<Button-1>", flip)
+
+    def _paint_state(self, label, record):
+        if record["is_duplicate"] and record["checked"]:
+            text, color = "Replace existing", WARNING
+        elif record["is_duplicate"]:
+            text, color = "Imported", MUTED
+        elif record["checked"]:
+            text, color = "New", SUCCESS
+        else:
+            text, color = "Not selected", MUTED
+        if record.get("report"):
+            text = "%s · %s" % (text, record["report"])
+        label.config(text=text, fg=color)
+
+    def _set_checked(self, record, value):
+        record["checked"] = value
+        var = record.get("_var")
+        if var is not None and bool(var.get()) != value:
+            var.set(value)
+
+    def _select_new(self):
+        if self._busy:
             return
-
-        new_count = 0
-        dup_count = 0
-
-        for idx, rec in enumerate(records):
-            item_id = str(idx)
-            is_dup = rec["is_duplicate"]
-            checked = not is_dup  # Pre-select new files
-            if checked:
-                new_count += 1
-            else:
-                dup_count += 1
-            self.item_checkboxes[item_id] = checked
-
-            check_mark = "  ☑  " if checked else "  ☐  "
-            status_text = f"Already Exists (ID {rec['existing_id']})" if is_dup else "Ready (New)"
-
-            tag = "dup" if is_dup else "new"
-            self.tree.insert(
-                "",
-                "end",
-                iid=item_id,
-                values=(check_mark, rec["filename"], rec["datetime_display"], rec["duration_display"], status_text),
-                tags=(tag,)
-            )
-
-        self.tree.tag_configure("new", foreground="#2c3e50")
-        self.tree.tag_configure("dup", foreground="#95a5a6")
-
-        self.summary_lbl.config(
-            text=f"Total: {len(records)} files  |  New: {new_count}  |  Existing: {dup_count}",
-            fg=TEXT_COLOR
-        )
+        for record in self.records:
+            self._set_checked(record, not record["is_duplicate"])
+        self._update_summary()
         self._update_import_button()
 
-    def _on_tree_click(self, event):
-        region = self.tree.identify_region(event.x, event.y)
-        item_id = self.tree.identify_row(event.y)
-        col = self.tree.identify_column(event.x)
-        if not item_id:
+    def _clear_selection(self):
+        if self._busy:
             return
-        if region in ("cell", "tree") and (col == "#1" or event.x < 70):
-            self._toggle_item(item_id)
-
-    def _on_tree_space(self, event):
-        sel = self.tree.selection()
-        if sel:
-            self._toggle_item(sel[0])
-
-    def _toggle_item(self, item_id):
-        current = self.item_checkboxes.get(item_id, False)
-        new_state = not current
-        self.item_checkboxes[item_id] = new_state
-
-        mark = "  ☑  " if new_state else "  ☐  "
-        vals = list(self.tree.item(item_id, "values"))
-        vals[0] = mark
-        self.tree.item(item_id, values=vals)
+        for record in self.records:
+            self._set_checked(record, False)
+        self._update_summary()
         self._update_import_button()
 
-    def _select_all_new(self):
-        for idx, rec in enumerate(self.records_data):
-            item_id = str(idx)
-            if not rec["is_duplicate"]:
-                self.item_checkboxes[item_id] = True
-                vals = list(self.tree.item(item_id, "values"))
-                vals[0] = "  ☑  "
-                self.tree.item(item_id, values=vals)
-        self._update_import_button()
+    def _selected_records(self):
+        return [record for record in self.records if record["checked"]]
 
-    def _deselect_all(self):
-        for idx in range(len(self.records_data)):
-            item_id = str(idx)
-            self.item_checkboxes[item_id] = False
-            vals = list(self.tree.item(item_id, "values"))
-            vals[0] = "  ☐  "
-            self.tree.item(item_id, values=vals)
-        self._update_import_button()
+    def _update_summary(self):
+        total = len(self.records)
+        new_count = sum(1 for record in self.records if not record["is_duplicate"])
+        imported = total - new_count
+        selected = len(self._selected_records())
+        self.summary_var.set("%d recordings · %d new · %d imported · %d selected" % (total, new_count, imported, selected))
 
     def _update_import_button(self):
-        selected_count = sum(1 for v in self.item_checkboxes.values() if v)
-        if selected_count > 0:
-            self.import_btn.config(
-                text=f"Import Selected Recordings ({selected_count})",
-                state="normal",
-                bg=PRIMARY_COLOR
-            )
-        else:
-            self.import_btn.config(
-                text="Import Selected Recordings (0)",
-                state="disabled",
-                bg="#b0bec5"
-            )
-
-    def _get_selected_subuser_id(self):
-        val = self.patient_var.get()
-        if "ID: " in val:
-            try:
-                return int(val.split("ID: ")[1].rstrip(")"))
-            except Exception:
-                pass
-        return 1
+        selected = self._selected_records()
+        replace = sum(1 for record in selected if record["is_duplicate"])
+        fresh = len(selected) - replace
+        if self._busy:
+            self.import_btn.config(state="disabled", bg="#b0bec5", text="Importing…")
+            return
+        if not selected:
+            self.import_btn.config(state="disabled", bg="#b0bec5", text="Import recordings")
+            return
+        parts = []
+        if fresh:
+            parts.append("Import %d" % fresh)
+        if replace:
+            parts.append("replace %d" % replace)
+        self.import_btn.config(state="normal", bg=PRIMARY, text=", ".join(parts))
 
     def _do_import(self):
-        selected_files = []
-        for idx, rec in enumerate(self.records_data):
-            if self.item_checkboxes.get(str(idx), False):
-                selected_files.append(rec["filepath"])
+        selected = self._selected_records()
+        if not selected or self._busy:
+            return
+        jobs = [(record["filepath"], bool(record["is_duplicate"])) for record in selected]
+        patient_id = self._selected_patient_id()
+        self._busy = True
+        self.import_btn.config(state="disabled", bg="#b0bec5", text="Importing…")
+        self.progress.pack(fill="x", padx=18, pady=(0, 6), before=self.banner)
+        self.progress.configure(maximum=len(jobs), value=0)
+        self.banner_var.set("")
+        threading.Thread(
+            target=self._import_worker, args=(jobs, patient_id), daemon=True,
+        ).start()
 
-        if not selected_files:
-            messagebox.showwarning("No Files Selected", "Please select at least one recording to import.", parent=self)
+    def _import_worker(self, jobs, patient_id):
+        results = []
+        total = len(jobs)
+        for index, (path, force) in enumerate(jobs, 1):
+            name = os.path.basename(path)
+            self._queue.put(("progress", index, total, name))
+            try:
+                ok, message, _timestamp = import_single_file(path, subusr_id=patient_id, force=force)
+            except Exception as exc:
+                ok, message = False, str(exc)
+            duplicate = "already exists" in message.lower()
+            results.append((name, ok, message, duplicate))
+        self._queue.put(("done", results))
+
+    def _poll(self):
+        self._poll_after = None
+        if not self.winfo_exists():
+            return
+        try:
+            while True:
+                item = self._queue.get_nowait()
+                if item[0] == "progress":
+                    _kind, index, total, name = item
+                    self.progress.configure(value=max(0, index - 1))
+                    self.summary_var.set("Importing %d of %d — %s" % (index, total, name))
+                else:
+                    self._finish_import(item[1])
+        except queue.Empty:
+            if self.winfo_exists():
+                self._poll_after = self.after(80, self._poll)
+        except tk.TclError:
             return
 
-        subusr_id = self._get_selected_subuser_id()
+    def _finish_import(self, results):
+        imported = [item for item in results if item[1]]
+        failed = [item for item in results if not item[1] and not item[3]]
+        if imported:
+            self._imported_any = True
+        self.progress.configure(value=self.progress["maximum"])
+        lines = []
+        if imported:
+            lines.append("Imported %d recording%s." % (len(imported), "" if len(imported) == 1 else "s"))
+        if failed:
+            detail = "; ".join("%s (%s)" % (name, message) for name, _ok, message, _dup in failed[:3])
+            lines.append("Failed: %s" % detail)
+        if self._imported_any:
+            lines.append("Close this window to reload ECG Data Management.")
+        self.banner_var.set(" ".join(lines))
+        self.banner.config(fg=ERROR if failed and not imported else SUCCESS)
+        self._busy = False
+        self._load_folder(self.current_folder.get())
 
-        self.import_btn.config(state="disabled", text="Importing, please wait...")
-        self.update_idletasks()
-
-        res = import_records(selected_files, subusr_id=subusr_id, force=True)
-
-        imported_count = len(res["imported"])
-        skipped_count = len(res["duplicates_skipped"])
-        errors_count = len(res["errors"])
-
-        summary_lines = [
-            f"Import complete for patient: {self.patient_var.get()}\n",
-            f"✔ Successfully imported: {imported_count} record(s)",
-        ]
-        if res["imported"]:
-            summary_lines.append("\nImported Files:")
-            for item in res["imported"]:
-                summary_lines.append(f"  • {item['file']}: {item['message']}")
-
-        if skipped_count > 0:
-            summary_lines.append(f"\nDuplicate files skipped: {skipped_count}")
-
-        if errors_count > 0:
-            summary_lines.append(f"\nErrors encountered: {errors_count}")
-            for err in res["errors"]:
-                summary_lines.append(f"  • {err['file']}: {err['message']}")
-
-        summary_lines.append("\nThe ECG Data Management table has been updated with the new records.")
-
-        messagebox.showinfo(
-            "ECG Import Summary",
-            "\n".join(summary_lines),
-            parent=self
-        )
-
-        refresh_main_window()
-
-        self.exit_code = 2
+    def _open_vendor(self):
+        if self._busy:
+            return
+        self.exit_code = 2 if self._imported_any else 1
         self.destroy()
 
     def _cancel(self):
-        self.exit_code = 0
+        if self._busy:
+            self.banner_var.set("Import still running.")
+            self.banner.config(fg=WARNING)
+            return
+        self.exit_code = 2 if self._imported_any else 0
         self.destroy()
 
 
 def main():
-    mode = "choice"
     initial_dir = None
-
-    if "--folder" in sys.argv:
-        mode = "folder"
     if len(sys.argv) > 1 and not sys.argv[-1].startswith("--"):
         initial_dir = sys.argv[-1]
-
-    app = FolderImportApp(mode=mode, initial_dir=initial_dir)
+    app = FolderImportApp(initial_dir=initial_dir)
     app.mainloop()
     sys.exit(app.exit_code)
 

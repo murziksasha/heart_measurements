@@ -10,7 +10,10 @@ from import_local_er1 import (
     parse_header_timestamp,
     format_timestamp_display,
     format_duration,
-    scan_folder_records
+    format_file_size,
+    format_report_chip,
+    guess_serial,
+    scan_folder_records,
 )
 
 class TestImportLogic(unittest.TestCase):
@@ -44,6 +47,19 @@ class TestImportLogic(unittest.TestCase):
         # Filename override
         ts_file = parse_header_timestamp(header, "R20261005230712")
         self.assertEqual(ts_file, "20261005230712")
+
+    def test_guess_serial_never_invents_one(self):
+        self.assertIsNone(guess_serial(["R20261007120000", "readme.txt"]))
+        self.assertEqual(guess_serial(["2306490032R20261007120000"]), "2306490032")
+        self.assertEqual(guess_serial(["notes", "2306490032"]), "2306490032")
+
+    def test_report_chip_and_file_size(self):
+        self.assertEqual(format_file_size(1536), "1 KB")
+        self.assertEqual(
+            format_report_chip({"avg": 77, "min": 49, "max": 129, "diagnosis": "Normal sinus rhythm"}),
+            "77 avg · 49–129 · Normal sinus rhythm",
+        )
+        self.assertEqual(format_report_chip(None), "")
 
     def test_format_helpers(self):
         self.assertEqual(format_timestamp_display("20261005230712"), "2026-10-05 23:07:12")
