@@ -62,6 +62,21 @@ class TestUserManagement(unittest.TestCase):
         conn.close()
         self.assertGreater(fam_id, 0)
 
+    def test_update_subuser_stores_height_and_weight(self):
+        created = manage_users.add_subuser(name="Height Check", gender="Male", birthday="1985-05-05")
+        updated = manage_users.update_subuser(
+            created["id"], name="Height Check", gender="Female", birthday="1985-05-05", height=170, weight=68,
+        )
+        self.assertEqual(updated["height"], 170)
+        self.assertEqual(updated["weight"], 68)
+        users = {u["id"]: u for u in manage_users.get_all_subusers()}
+        self.assertEqual(users[created["id"]]["gender"], "Female")
+        self.assertEqual(users[created["id"]]["height"], 170)
+
+    def test_body_measurements_rejected_when_out_of_range(self):
+        with self.assertRaises(ValueError):
+            manage_users.add_subuser(name="Too Tall", birthday="1990-01-01", height=400)
+
     def test_validation_errors(self):
         with self.assertRaises(ValueError):
             manage_users.add_subuser(name="")

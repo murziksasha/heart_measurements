@@ -14,6 +14,8 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+from ui_theme import apply_theme, button, center
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Design system colors matching ECG Data Management
@@ -153,17 +155,38 @@ def get_all_subusers():
     return users
 
 
-def add_subuser(name, gender="Male", birthday="1990-01-01", email=None, height=0, weight=0, note=""):
-    """
-    Creates a new patient profile across all database copies.
-    Generates a unique familyid, creates patient folder, and updates tb_subusr_selected_time.
-    Returns the created user dict.
-    """
+def _validate_body(height, weight):
+    """Height and weight are optional. 0 means not recorded."""
+    try:
+        height = int(height or 0)
+        weight = int(weight or 0)
+    except (TypeError, ValueError):
+        raise ValueError("Height and weight must be whole numbers.")
+    if height < 0 or height > 250:
+        raise ValueError("Height must be between 0 and 250 cm.")
+    if weight < 0 or weight > 400:
+        raise ValueError("Weight must be between 0 and 400 kg.")
+    return height, weight
+
+
+def _validate_name(name):
     name = str(name).strip()
     if not name:
         raise ValueError("Patient name cannot be empty.")
     if len(name) > 20:
         raise ValueError("Patient name must not exceed 20 characters.")
+    return name
+
+
+def add_subuser(name, gender="Male", birthday="1990-01-01", email=None, height=0, weight=0, note=""):
+    """
+    Creates a new patient profile across all database copies.
+    Generates a unique familyid, creates patient folder, and updates tb_subusr_selected_time.
+    Returns the created user dict.
+    note is accepted for older callers and is not stored: tb_subuser has no note column.
+    """
+    name = _validate_name(name)
+    height, weight = _validate_body(height, weight)
 
     gender_code = 2 if str(gender).strip().lower() in ["male", "m", "2"] else 1
     if not email:
@@ -223,9 +246,59 @@ def add_subuser(name, gender="Male", birthday="1990-01-01", email=None, height=0
         "gender": "Male" if gender_code == 2 else "Female",
         "birthday": birthday,
         "age": calculate_age(birthday),
-        "email": email
+        "email": email,
+        "height": height,
+        "weight": weight,
     }
     return created_user
+
+
+def update_subuser(subusr_id, name, gender="Male", birthday="1990-01-01", email=None, height=0, weight=0):
+    """Updates an existing patient on every database copy. Does not change the id."""
+    name = _validate_name(name)
+    height, weight = _validate_body(height, weight)
+    gender_code = 2 if str(gender).strip().lower() in ["male", "m", "2"] else 1
+    if not email:
+        email = get_current_admin()
+    email = str(email).strip()
+    subusr_id = int(subusr_id)
+
+    updated = False
+    for loc in get_target_locations():
+        db_path = os.path.join(loc, "db_lepu_care_world.db")
+        if not os.path.exists(db_path):
+            continue
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT subusr_id FROM tb_subuser WHERE subusr_id = ?", (subusr_id,))
+        if not cur.fetchone():
+            conn.close()
+            continue
+        cur.execute(
+            """
+            UPDATE tb_subuser
+            SET userkey = ?, name = ?, gender = ?, birthday = ?, height = ?, weight = ?
+            WHERE subusr_id = ?
+            """,
+            (email, name, gender_code, birthday, height, weight, subusr_id),
+        )
+        conn.commit()
+        conn.close()
+        updated = True
+
+    if not updated:
+        raise ValueError("Patient %s was not found." % subusr_id)
+
+    return {
+        "id": subusr_id,
+        "name": name,
+        "gender": "Male" if gender_code == 2 else "Female",
+        "birthday": birthday,
+        "age": calculate_age(birthday),
+        "email": email,
+        "height": height,
+        "weight": weight,
+    }
 
 
 def delete_subuser(subusr_id):
@@ -265,90 +338,95 @@ class AddUserBase:
     Base form logic and UI components for creating a new patient / subuser.
     Matches the ECG Data Management aesthetic (#2ea2f8, cards, Segoe UI).
     """
-    def _setup_dialog(self, on_success=None):
+    def _setup_dialog(self, on_success=None, existing=None):
         self.on_success = on_success
+        self.existing = existing
         self.result = None
+        self.editing = existing is not None
 
-        self.title("Add New User")
+        self.title("Edit patient" if self.editing else "Add patient")
         self.configure(bg=BG_COLOR)
+        apply_theme(self)
 
-        width, height = 480, 560
-        self.geometry(f"{width}x{height}")
-        self.minsize(440, 500)
+        width, height = 460, 520
+        self.geometry("%dx%d" % (width, height))
+        self.minsize(420, 480)
         self.resizable(True, True)
-        self._center_window(width, height)
+        center(self, width, height)
 
         self._init_variables()
         self._build_ui()
 
-        # Keep modal persistently topmost so external Qt windows cannot bury it
         self.attributes("-topmost", True)
         self.lift()
         self.focus_force()
         self.after(60, lambda: self.name_entry.focus())
 
-    def _center_window(self, width, height):
-        self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        x = max(0, (sw - width) // 2)
-        y = max(0, (sh - height) // 2)
-        self.geometry(f"{width}x{height}+{x}+{y}")
-
     def _init_variables(self):
-        self.name_var = tk.StringVar()
-        self.gender_var = tk.StringVar(value="Male")
-        self.email_var = tk.StringVar(value=get_current_admin())
-        self.year_var = tk.StringVar(value="1990")
-        self.month_var = tk.StringVar(value="01")
-        self.day_var = tk.StringVar(value="01")
-        self.age_var = tk.StringVar(value="Age: 36")
-        self.note_var = tk.StringVar()
+        current = self.existing or {}
+        self.name_var = tk.StringVar(value=current.get("name") or "")
+        self.gender_var = tk.StringVar(value=current.get("gender") if current.get("gender") in ("Male", "Female") else "Male")
+        self.email_var = tk.StringVar(value=current.get("email") or get_current_admin())
+        self.height_var = tk.StringVar(value=str(current.get("height") or 0))
+        self.weight_var = tk.StringVar(value=str(current.get("weight") or 0))
+        self.count_var = tk.StringVar(value="0/20")
+        self.age_var = tk.StringVar(value="Age: —")
         self.error_var = tk.StringVar()
 
-        # Get next user ID preview
+        birthday = str(current.get("birthday") or "")[:10]
+        parts = birthday.split("-") if birthday else []
+        if len(parts) == 3 and len(parts[0]) == 4:
+            self.year_var = tk.StringVar(value=parts[0])
+            self.month_var = tk.StringVar(value=parts[1])
+            self.day_var = tk.StringVar(value=parts[2])
+        else:
+            self.year_var = tk.StringVar(value="")
+            self.month_var = tk.StringVar(value="01")
+            self.day_var = tk.StringVar(value="01")
+
         users = get_all_subusers()
-        next_id = (max(u["id"] for u in users) + 1) if users else 1
-        self.next_id_str = f"User #{next_id}"
+        if self.editing:
+            self.next_id_str = "Patient #%s" % current.get("id")
+        else:
+            next_id = (max(u["id"] for u in users) + 1) if users else 1
+            self.next_id_str = "Patient #%s" % next_id
 
     def _build_ui(self):
         # 1. Header banner (Top)
         header_frame = tk.Frame(self, bg=CARD_BG, padx=24, pady=14, highlightthickness=1, highlightbackground=BORDER_COLOR)
         header_frame.pack(fill="x", side="top")
 
-        title_lbl = tk.Label(header_frame, text="Add New User", font=("Segoe UI", 15, "bold"), fg=TEXT_COLOR, bg=CARD_BG)
+        heading = "Edit patient" if self.editing else "Add patient"
+        title_lbl = tk.Label(header_frame, text=heading, font=("Segoe UI", 15, "bold"), fg=TEXT_COLOR, bg=CARD_BG)
         title_lbl.pack(anchor="w")
 
-        sub_lbl = tk.Label(header_frame, text=f"Create a new patient profile ({self.next_id_str})", font=("Segoe UI", 9), fg=MUTED_COLOR, bg=CARD_BG)
+        sub_lbl = tk.Label(header_frame, text=self.next_id_str, font=("Segoe UI", 9), fg=MUTED_COLOR, bg=CARD_BG)
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
-        # 2. Button Action Bar (Packed side="bottom" FIRST to guarantee 100% visibility)
         btn_frame = tk.Frame(self, bg=CARD_BG, padx=24, pady=12, highlightthickness=1, highlightbackground=BORDER_COLOR)
         btn_frame.pack(fill="x", side="bottom")
 
-        btn_cancel = tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 10),
-                               bg="#ffffff", fg=TEXT_COLOR, relief="solid", bd=1,
-                               padx=18, pady=5, cursor="hand2", command=self._on_cancel)
+        btn_cancel = button(btn_frame, "Cancel", self._on_cancel)
         btn_cancel.pack(side="right", padx=(10, 0))
 
-        self.btn_submit = tk.Button(btn_frame, text="Save User", font=("Segoe UI", 10, "bold"),
-                                    bg=PRIMARY_COLOR, fg="#ffffff", activebackground=PRIMARY_HOVER,
-                                    activeforeground="#ffffff", relief="flat", bd=0,
-                                    padx=22, pady=6, cursor="hand2", command=self._submit)
+        save_text = "Save changes" if self.editing else "Save patient"
+        self.btn_submit = button(btn_frame, save_text, self._submit, kind="primary")
         self.btn_submit.pack(side="right")
 
         # 3. Main form container (Fills remaining middle area)
         form_frame = tk.Frame(self, bg=BG_COLOR, padx=24, pady=12)
         form_frame.pack(fill="both", expand=True)
 
-        # Patient Name (Required, max 20)
-        lbl_name = tk.Label(form_frame, text="Name *", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR)
-        lbl_name.pack(anchor="w", pady=(0, 3))
+        name_hdr = tk.Frame(form_frame, bg=BG_COLOR)
+        name_hdr.pack(fill="x", pady=(0, 3))
+        tk.Label(name_hdr, text="Name *", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR).pack(side="left")
+        tk.Label(name_hdr, textvariable=self.count_var, font=("Segoe UI", 9), fg=MUTED_COLOR, bg=BG_COLOR).pack(side="right")
 
         self.name_entry = tk.Entry(form_frame, textvariable=self.name_var, font=("Segoe UI", 10),
                                    bg=CARD_BG, fg=TEXT_COLOR, relief="solid", bd=1, highlightthickness=0)
         self.name_entry.pack(fill="x", ipady=4, pady=(0, 8))
         self.name_var.trace_add("write", self._on_name_change)
+        self._on_name_change()
 
         # Gender
         lbl_gender = tk.Label(form_frame, text="Gender", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR)
@@ -381,7 +459,7 @@ class AddUserBase:
         date_frame = tk.Frame(form_frame, bg=BG_COLOR)
         date_frame.pack(fill="x", pady=(0, 8))
 
-        years = [str(y) for y in range(datetime.now().year, 1920, -1)]
+        years = [""] + [str(y) for y in range(datetime.now().year, 1920, -1)]
         cb_year = ttk.Combobox(date_frame, textvariable=self.year_var, values=years, width=8, state="readonly")
         cb_year.pack(side="left", padx=(0, 6))
 
@@ -398,23 +476,31 @@ class AddUserBase:
         self.day_var.trace_add("write", self._update_age)
         self._update_age()
 
-        # E-mail / Account
-        lbl_email = tk.Label(form_frame, text="E-mail", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR)
-        lbl_email.pack(anchor="w", pady=(0, 3))
+        measure = tk.Frame(form_frame, bg=BG_COLOR)
+        measure.pack(fill="x", pady=(0, 8))
 
-        email_entry = tk.Entry(form_frame, textvariable=self.email_var, font=("Segoe UI", 10),
-                               bg=CARD_BG, fg=TEXT_COLOR, relief="solid", bd=1, highlightthickness=0)
-        email_entry.pack(fill="x", ipady=4, pady=(0, 8))
+        tk.Label(measure, text="Height (cm)", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR).grid(row=0, column=0, sticky="w")
+        tk.Label(measure, text="Weight (kg)", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR).grid(row=0, column=1, sticky="w", padx=(16, 0))
+        tk.Spinbox(
+            measure, from_=0, to=250, textvariable=self.height_var, width=8,
+            font=("Segoe UI", 10), justify="left", buttoncursor="hand2",
+        ).grid(row=1, column=0, sticky="w", pady=(3, 0))
+        tk.Spinbox(
+            measure, from_=0, to=400, textvariable=self.weight_var, width=8,
+            font=("Segoe UI", 10), justify="left", buttoncursor="hand2",
+        ).grid(row=1, column=1, sticky="w", padx=(16, 0), pady=(3, 0))
+        tk.Label(
+            form_frame,
+            text="Leave height and weight at 0 if you do not know them. 0 is stored as not recorded.",
+            font=("Segoe UI", 8),
+            fg=MUTED_COLOR,
+            bg=BG_COLOR,
+        ).pack(anchor="w", pady=(0, 8))
 
-        # Note / Remark
-        lbl_note = tk.Label(form_frame, text="Note / Remark (optional)", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR)
-        lbl_note.pack(anchor="w", pady=(0, 3))
+        tk.Label(form_frame, text="Account", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=BG_COLOR).pack(anchor="w", pady=(0, 3))
+        tk.Label(form_frame, textvariable=self.email_var, font=("Segoe UI", 10), fg=MUTED_COLOR, bg=BG_COLOR).pack(anchor="w", pady=(0, 8))
 
-        self.note_text = tk.Text(form_frame, height=2, font=("Segoe UI", 9), bg=CARD_BG, fg=TEXT_COLOR,
-                                 relief="solid", bd=1, highlightthickness=0)
-        self.note_text.pack(fill="x", pady=(0, 4))
 
-        # Error notification label
         self.lbl_error = tk.Label(form_frame, textvariable=self.error_var, font=("Segoe UI", 9),
                                   fg=ERROR_COLOR, bg=BG_COLOR)
         self.lbl_error.pack(anchor="w", pady=(0, 2))
@@ -426,54 +512,96 @@ class AddUserBase:
         val = self.name_var.get()
         if len(val) > 20:
             self.name_var.set(val[:20])
+            return
+        self.count_var.set("%d/20" % len(val))
         self.error_var.set("")
 
     def _update_age(self, *args):
+        year = self.year_var.get().strip()
+        if not year:
+            self.age_var.set("Age: —")
+            return
+        birthday = "%s-%s-%s" % (year, self.month_var.get(), self.day_var.get())
         try:
-            b_str = f"{self.year_var.get()}-{self.month_var.get()}-{self.day_var.get()}"
-            age = calculate_age(b_str)
-            self.age_var.set(f"Age: {age}")
+            datetime.strptime(birthday, "%Y-%m-%d")
+            self.age_var.set("Age: %d" % calculate_age(birthday))
         except Exception:
-            self.age_var.set("Age: -")
+            self.age_var.set("Age: —")
+
+    def _birthday(self):
+        year = self.year_var.get().strip()
+        if not year:
+            return None
+        birthday = "%s-%s-%s" % (year, self.month_var.get(), self.day_var.get())
+        try:
+            datetime.strptime(birthday, "%Y-%m-%d")
+        except ValueError:
+            return None
+        return birthday
 
     def _submit(self):
         name = self.name_var.get().strip()
         if not name:
-            self.error_var.set("Please enter patient name.")
+            self.error_var.set("Enter a patient name.")
             self.name_entry.focus()
             return
 
-        # Check duplicate name warning
-        existing = [u["name"].lower() for u in get_all_subusers()]
-        if name.lower() in existing:
-            if not messagebox.askyesno("Duplicate Name", f"A user named '{name}' already exists.\nDo you still want to add this user?", parent=self):
-                return
+        birthday = self._birthday()
+        if not birthday:
+            self.error_var.set("Enter a real birth date. The year is required.")
+            return
+
+        self_id = self.existing["id"] if self.existing else None
+        for user in get_all_subusers():
+            if user["id"] == self_id:
+                continue
+            if user["name"].lower() == name.lower():
+                if not messagebox.askyesno(
+                    "Duplicate name",
+                    "A patient named '%s' already exists.\nSave this one anyway?" % name,
+                    parent=self,
+                ):
+                    return
+                break
 
         gender = self.gender_var.get()
-        birthday = f"{self.year_var.get()}-{self.month_var.get()}-{self.day_var.get()}"
         email = self.email_var.get().strip() or get_current_admin()
-        note = self.note_text.get("1.0", "end-1c").strip()
+        try:
+            height = int(self.height_var.get() or 0)
+            weight = int(self.weight_var.get() or 0)
+        except ValueError:
+            self.error_var.set("Height and weight must be whole numbers.")
+            return
 
         try:
-            created = add_subuser(name=name, gender=gender, birthday=birthday, email=email, note=note)
+            if self.editing:
+                created = update_subuser(
+                    self.existing["id"], name=name, gender=gender, birthday=birthday,
+                    email=email, height=height, weight=weight,
+                )
+            else:
+                created = add_subuser(
+                    name=name, gender=gender, birthday=birthday, email=email,
+                    height=height, weight=weight,
+                )
             self.result = created
             if self.on_success:
                 self.on_success(created)
             self.destroy()
         except Exception as e:
-            self.error_var.set(f"Error: {e}")
+            self.error_var.set("Error: %s" % e)
 
 
 class AddUserDialog(tk.Toplevel, AddUserBase):
     """
     Modal dialog for creating a new patient / subuser within an existing Tk root.
     """
-    def __init__(self, parent=None, on_success=None):
+    def __init__(self, parent=None, on_success=None, existing=None):
         super().__init__(parent)
         if parent:
             self.transient(parent)
         self.grab_set()
-        self._setup_dialog(on_success)
+        self._setup_dialog(on_success, existing=existing)
 
 
 class StandaloneAddUserApp(tk.Tk, AddUserBase):
@@ -502,123 +630,161 @@ class StandaloneAddUserApp(tk.Tk, AddUserBase):
         self.destroy()
 
 
+def _measure(value, unit):
+    if not value:
+        return "—"
+    return "%s %s" % (value, unit)
+
+
 class ManageUsersApp(tk.Tk):
-    """Standalone Patient Management Window."""
+    """Standalone patient list."""
     def __init__(self):
         super().__init__()
-        self.title("AI-ECG Portable - User Management")
+        self.title("Patients")
         self.configure(bg=BG_COLOR)
-        width, height = 720, 480
-        self.geometry(f"{width}x{height}")
-        self.minsize(620, 380)
-
+        apply_theme(self)
+        width, height = 820, 480
+        self.minsize(700, 380)
+        center(self, width, height)
+        self._users = []
         self._build_ui()
         self._load_users()
 
     def _build_ui(self):
-        # Header
-        header = tk.Frame(self, bg=CARD_BG, padx=20, pady=16, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        header = tk.Frame(self, bg=CARD_BG, padx=20, pady=14, highlightthickness=1, highlightbackground=BORDER_COLOR)
         header.pack(fill="x", side="top")
+        tk.Label(header, text="Patients", font=("Segoe UI", 15, "bold"), fg=TEXT_COLOR, bg=CARD_BG).pack(side="left")
+        button(header, "Add patient", self._open_add_dialog, kind="primary").pack(side="right")
 
-        tk.Label(header, text="User Management", font=("Segoe UI", 14, "bold"), fg=TEXT_COLOR, bg=CARD_BG).pack(side="left")
-
-        btn_add = tk.Button(header, text="+ Add User", font=("Segoe UI", 9, "bold"),
-                            bg=PRIMARY_COLOR, fg="#ffffff", activebackground=PRIMARY_HOVER,
-                            activeforeground="#ffffff", relief="flat", bd=0, padx=14, pady=5,
-                            cursor="hand2", command=self._open_add_dialog)
-        btn_add.pack(side="right")
-
-        # Table container
         table_frame = tk.Frame(self, bg=BG_COLOR, padx=20, pady=14)
         table_frame.pack(fill="both", expand=True)
 
-        columns = ("id", "name", "gender", "age", "birthday", "email", "records")
+        columns = ("name", "gender", "age", "birthday", "height", "weight", "records")
         self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
-
-        self.tree.heading("id", text="User ID")
-        self.tree.heading("name", text="Patient Name")
-        self.tree.heading("gender", text="Gender")
-        self.tree.heading("age", text="Age")
-        self.tree.heading("birthday", text="Birthday")
-        self.tree.heading("email", text="E-mail")
-        self.tree.heading("records", text="Recordings")
-
-        self.tree.column("id", width=60, anchor="center")
-        self.tree.column("name", width=140, anchor="w")
-        self.tree.column("gender", width=70, anchor="center")
-        self.tree.column("age", width=50, anchor="center")
-        self.tree.column("birthday", width=95, anchor="center")
-        self.tree.column("email", width=170, anchor="w")
-        self.tree.column("records", width=80, anchor="center")
+        headings = (
+            ("name", "Patient", 160, "w"),
+            ("gender", "Gender", 80, "center"),
+            ("age", "Age", 50, "center"),
+            ("birthday", "Birthday", 110, "center"),
+            ("height", "Height", 80, "center"),
+            ("weight", "Weight", 80, "center"),
+            ("records", "Recordings", 90, "center"),
+        )
+        for key, label, width, anchor in headings:
+            self.tree.heading(key, text=label)
+            self.tree.column(key, width=width, anchor=anchor)
 
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
-
         self.tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", lambda _event: self._open_edit_dialog())
 
-        # Bottom actions
         footer = tk.Frame(self, bg=CARD_BG, padx=20, pady=12, highlightthickness=1, highlightbackground=BORDER_COLOR)
         footer.pack(fill="x", side="bottom")
-
         self.lbl_status = tk.Label(footer, text="", font=("Segoe UI", 9), fg=MUTED_COLOR, bg=CARD_BG)
         self.lbl_status.pack(side="left")
-
-        btn_close = tk.Button(footer, text="Close", font=("Segoe UI", 9), bg="#ffffff", fg=TEXT_COLOR,
-                              relief="flat", bd=1, highlightthickness=1, highlightbackground=BORDER_COLOR,
-                              padx=14, pady=4, cursor="hand2", command=self.destroy)
-        btn_close.pack(side="right")
-
-        btn_delete = tk.Button(footer, text="Delete Selected", font=("Segoe UI", 9), bg="#ffffff", fg=ERROR_COLOR,
-                               relief="flat", bd=1, highlightthickness=1, highlightbackground=BORDER_COLOR,
-                               padx=12, pady=4, cursor="hand2", command=self._delete_selected)
-        btn_delete.pack(side="right", padx=(0, 8))
+        button(footer, "Close", self.destroy).pack(side="right")
+        button(footer, "Delete", self._delete_selected, kind="danger").pack(side="right", padx=(0, 8))
+        button(footer, "Edit", self._open_edit_dialog).pack(side="right", padx=(0, 8))
 
     def _load_users(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        users = get_all_subusers()
-        for u in users:
-            self.tree.insert("", "end", iid=str(u["id"]), values=(
-                f"#{u['id']}",
-                u["name"],
-                u["gender"],
-                u["age"],
-                u["birthday"],
-                u["email"],
-                u["records"]
+        self._users = get_all_subusers()
+        for user in self._users:
+            self.tree.insert("", "end", iid=str(user["id"]), values=(
+                user["name"],
+                user["gender"],
+                user["age"],
+                (user["birthday"] or "")[:10],
+                _measure(user["height"], "cm"),
+                _measure(user["weight"], "kg"),
+                user["records"],
             ))
-        self.lbl_status.config(text=f"Total Patients: {len(users)}")
+        self.lbl_status.config(text="%d patients" % len(self._users))
 
-    def _open_add_dialog(self):
-        AddUserDialog(self, on_success=lambda u: self._load_users())
-
-    def _delete_selected(self):
+    def _selected_user(self):
         selected = self.tree.selection()
         if not selected:
-            messagebox.showinfo("Select User", "Please select a user to delete.")
-            return
-
+            return None
         uid = int(selected[0])
-        if uid == 1:
-            messagebox.showwarning("Restricted", "Cannot delete the default patient profile (ID 1).")
+        for user in self._users:
+            if user["id"] == uid:
+                return user
+        return None
+
+    def _open_add_dialog(self):
+        AddUserDialog(self, on_success=lambda _user: self._load_users())
+
+    def _open_edit_dialog(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("Select a patient", "Select a patient to edit.", parent=self)
             return
+        AddUserDialog(self, existing=user, on_success=lambda _user: self._load_users())
 
-        user_item = self.tree.item(selected[0])
-        name = user_item["values"][1]
-        recs = user_item["values"][6]
+    def _delete_selected(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("Select a patient", "Select a patient to delete.", parent=self)
+            return
+        if user["id"] == 1:
+            messagebox.showwarning("Protected patient", "The original patient (ID 1) cannot be deleted.", parent=self)
+            return
+        if user["records"] > 0:
+            if not _confirm_typed_name(self, user["name"], user["records"]):
+                return
+        elif not messagebox.askyesno("Delete patient", "Delete patient '%s'?" % user["name"], parent=self):
+            return
+        try:
+            delete_subuser(user["id"])
+            self._load_users()
+        except Exception as exc:
+            messagebox.showerror("Error", "Failed to delete patient: %s" % exc, parent=self)
 
-        msg = f"Are you sure you want to delete patient '{name}' (ID {uid})?"
-        if recs > 0:
-            msg += f"\nWarning: This patient has {recs} ECG recording(s) which will also be removed."
 
-        if messagebox.askyesno("Confirm Delete", msg):
-            try:
-                delete_subuser(uid)
-                self._load_users()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete patient: {e}")
+def _confirm_typed_name(parent, name, recordings):
+    """Ask the operator to type the patient name before deleting recordings."""
+    dialog = tk.Toplevel(parent)
+    dialog.title("Delete patient")
+    dialog.configure(bg=BG_COLOR)
+    dialog.resizable(False, False)
+    dialog.transient(parent)
+    dialog.grab_set()
+    center(dialog, 420, 220)
+    confirmed = {"ok": False}
+    typed = tk.StringVar()
+    error = tk.StringVar()
+
+    body = tk.Frame(dialog, bg=BG_COLOR, padx=20, pady=16)
+    body.pack(fill="both", expand=True)
+    tk.Label(
+        body,
+        text="Delete %s and %d recording(s)? This cannot be undone.\nType the patient name to confirm." % (name, recordings),
+        font=("Segoe UI", 10),
+        fg=TEXT_COLOR,
+        bg=BG_COLOR,
+        justify="left",
+    ).pack(anchor="w")
+    tk.Entry(body, textvariable=typed, font=("Segoe UI", 10), relief="solid", bd=1).pack(fill="x", ipady=3, pady=(10, 4))
+    tk.Label(body, textvariable=error, font=("Segoe UI", 9), fg=ERROR_COLOR, bg=BG_COLOR).pack(anchor="w")
+
+    actions = tk.Frame(dialog, bg=CARD_BG, padx=16, pady=10)
+    actions.pack(fill="x", side="bottom")
+
+    def accept():
+        if typed.get().strip() != name:
+            error.set("Type the name exactly.")
+            return
+        confirmed["ok"] = True
+        dialog.destroy()
+
+    button(actions, "Cancel", dialog.destroy).pack(side="right", padx=(8, 0))
+    button(actions, "Delete", accept, kind="danger").pack(side="right")
+    dialog.bind("<Return>", lambda _event: accept())
+    dialog.wait_window()
+    return confirmed["ok"]
 
 
 def run_add_gui_modal():
