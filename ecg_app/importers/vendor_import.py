@@ -12,6 +12,7 @@ writes the new schema + layout:
 from __future__ import annotations
 
 import argparse
+import configparser
 import hashlib
 import json
 import re
@@ -122,16 +123,74 @@ def scan_userfiles(userfiles: Path, records: list) -> dict:
     return found
 
 
-def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False) -> ImportReport:
-    """vendor_root is the old portable 'Data' folder (contains DATA/)."""
+CONFIG_KEYS = {"Language": ("language", int), "WaveType": ("wave_type", int), "MVHeightScale": ("mv_height_scale", float)}
+
+
+def read_vendor_config(ini: Path) -> dict:
+    """Language/WaveType/MVHeightScale from vendor config.ini [General]."""
+    if not ini.exists():
+        return {}
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.optionxform = str
+    try:
+        cp.read(ini, encoding="utf-8")
+    except configparser.Error:
+        return {}
+    sec = cp["General"] if cp.has_section("General") else {}
+    out = {}
+    for k, (name, conv) in CONFIG_KEYS.items():
+        if k in sec:
+            try:
+                out[name] = conv(sec[k])
+            except ValueError:
+                pass
+    return out
+
+
+def merge_subusers(recs: dict, merge: dict, rep: "ImportReport") -> dict:
+    """Map subuser ids (merge {src: dst}) and dedupe by (serial, start stamp)."""
+    out: dict = {}
+    for key in sorted(recs, key=lambda k: (k[0] in merge, k)):
+        vr = recs[key]
+        sub = merge.get(vr.subusr_id, vr.subusr_id)
+        k = (vr.serial, vr.stamp)
+        if k not in out:
+            vr.subusr_id = sub
+            out[k] = vr
+            continue
+        cur = out[k]
+        rep.counts["recordings_deduped"] += 1
+        for f in ("r_file", "pcm_file", "report_json", "report_pdf", "db_row"):
+            if getattr(cur, f) is None and getattr(vr, f) is not None:
+                setattr(cur, f, getattr(vr, f))
+        if vr.r_file and cur.r_file and sha256(vr.r_file) != sha256(cur.r_file):
+            rep.warnings.append(f"{vr.r_file}: differs from duplicate {cur.r_file}; kept the latter")
+    return out
+
+
+def parse_merge(items) -> dict:
+    out = {}
+    for it in items or []:
+        src, _, dst = it.partition("=")
+        if not (src.isdigit() and dst.isdigit()) or src == dst:
+            raise ValueError(f"bad --merge-subuser value: {it!r} (expected SRC=DST)")
+        out[int(src)] = int(dst)
+    return out
+
+
+def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False, merge: Optional[dict] = None) -> ImportReport:
+    """vendor_root is the old portable 'Data' folder (contains DATA/).
+    merge maps vendor subuser ids into another one, e.g. {2: 1}."""
+    merge = dict(merge or {})
     vendor_root = Path(vendor_root)
     data_dir = Path(data_dir)
     vdata = vendor_root / "DATA" if (vendor_root / "DATA").exists() else vendor_root
     rep = ImportReport()
     vdb = read_vendor_db(vdata / "db_lepu_care_world.db")
-    recs = scan_userfiles(vdata / "userfiles", vdb["records"])
+    raw_recs = scan_userfiles(vdata / "userfiles", vdb["records"])
+    recs = merge_subusers(raw_recs, merge, rep)
     for row in vdb["records"]:
-        if (row.get("subusr_id"), row.get("sn"), row.get("checktime")) not in recs:
+        if (row.get("subusr_id"), row.get("sn"), row.get("checktime")) not in raw_recs:
             rep.warnings.append(f"vendor record {row.get('recordid')} ({row.get('checktime')}) has no files; skipped")
 
     if dry_run:
@@ -175,7 +234,7 @@ def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False) -> Impo
                 protocol_version=d.get("protocolversion"), branch_code=d.get("branchcode"))).id
 
     # Patients (DB rows + folders without a DB row)
-    subs = {s["subusr_id"]: s for s in vdb["subusers"]}
+    subs = {s["subusr_id"]: s for s in vdb["subusers"] if s["subusr_id"] not in merge}
     for vr in recs.values():
         if vr.subusr_id not in subs:
             subs[vr.subusr_id] = None
@@ -200,9 +259,9 @@ def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False) -> Impo
             patient_ids[sid] = repo.patients.add(p).id
 
     # Recordings + reports
-    for key in sorted(recs, key=lambda k: (k[0], k[2])):
+    for key in sorted(recs, key=lambda k: (k[1], k[0])):
         vr = recs[key]
-        ref = f"vendor:rec:{vr.subusr_id}:{vr.serial}:{vr.stamp}"
+        ref = f"vendor:rec:{vr.serial}:{vr.stamp}"
         if exists(lambda r: r.recordings, ref):
             rep.counts["recordings_existing"] += 1
             rec_id = repo.recordings.by("legacy_ref", ref).id
@@ -251,7 +310,7 @@ def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False) -> Impo
                     legacy_ref=ref)).id
 
         if vr.report_json:
-            aref = f"vendor:report:{vr.subusr_id}:{vr.serial}:{vr.stamp}"
+            aref = f"vendor:report:{vr.serial}:{vr.stamp}"
             if exists(lambda r: r.analysis, aref):
                 rep.counts["reports_existing"] += 1
                 continue
@@ -275,6 +334,15 @@ def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False) -> Impo
                     recording_id=rec_id, source="cloud", payload=payload,
                     pdf_path=pdf_rel.as_posix() if pdf_rel else None, legacy_ref=aref))
 
+    cfg = read_vendor_config(vendor_root / "config.ini")
+    for name, val in cfg.items():
+        if repo is not None and repo.settings.get(name) is not None:
+            rep.counts["settings_existing"] += 1
+            continue
+        rep.counts["settings_new"] += 1
+        if not dry_run:
+            repo.settings.set(name, val)
+
     if repo is not None:
         if not dry_run:
             repo.settings.set("vendor_import", {"source": str(vendor_root), "at": datetime.now().isoformat(timespec="seconds")})
@@ -289,9 +357,15 @@ def main(argv=None) -> int:
     ap.add_argument("vendor_data", type=Path, help="old portable Data folder (contains DATA/)")
     ap.add_argument("--target", type=Path, default=None, help="new data dir (default: config.data_dir())")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--merge-subuser", action="append", metavar="SRC=DST",
+                    help="merge vendor subuser SRC into DST (repeatable), e.g. 2=1")
     a = ap.parse_args(argv)
+    try:
+        merge = parse_merge(a.merge_subuser)
+    except ValueError as e:
+        ap.error(str(e))
     target = a.target or data_dir()
-    rep = run_import(a.vendor_data, target, dry_run=a.dry_run)
+    rep = run_import(a.vendor_data, target, dry_run=a.dry_run, merge=merge)
     print(("DRY RUN -> " if a.dry_run else "Imported -> ") + str(target))
     print(rep.summary())
     return 0
