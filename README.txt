@@ -62,3 +62,14 @@ DIRECTORY STRUCTURE:
   - config.ini         : User preferences and settings
   - DATA/              : SQLite database and patient ECG records/reports
 ========================================================================
+
+== New Python app (ecg_app) - one-time vendor data import ==
+
+  python -m ecg_app.importers.vendor_import Data --dry-run --merge-subuser 2=1
+  python -m ecg_app.importers.vendor_import Data --merge-subuser 2=1
+
+- Reads Data/DATA (vendor DB + userfiles) and Data/config.ini read-only; writes ecg_data/ (or --target DIR).
+- --merge-subuser SRC=DST (repeatable) merges vendor subuser folder SRC into patient DST.
+  For this repo use 2=1. Recordings with the same serial + start time are stored once.
+- Safe to re-run: already imported items are skipped.
+- Carries over config.ini Language, WaveType, MVHeightScale into settings.

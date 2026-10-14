@@ -100,25 +100,33 @@ def _tree_hash(root: Path):
 def vendor_copy(tmp_path_factory):
     dst = tmp_path_factory.mktemp("v") / "Data"
     shutil.copytree(VENDOR / "DATA", dst / "DATA", ignore=shutil.ignore_patterns("*.bak"))
+    shutil.copy2(VENDOR / "config.ini", dst / "config.ini")
     return dst
 
 
 def test_vendor_import(vendor_copy, tmp_path):
     before = _tree_hash(vendor_copy)
     target = tmp_path / "new"
-    dry = run_import(vendor_copy, target, dry_run=True)
+    merge = {2: 1}
+    dry = run_import(vendor_copy, target, dry_run=True, merge=merge)
     assert not target.exists()
-    rep = run_import(vendor_copy, target)
+    rep = run_import(vendor_copy, target, merge=merge)
     assert dict(rep.counts) == dict(dry.counts)
-    assert rep.counts["recordings_new"] == 12 and rep.counts["reports_new"] == 4
-    assert rep.counts["patients_new"] == 2 and rep.counts["devices_new"] == 1
-    again = run_import(vendor_copy, target)
-    assert again.counts["recordings_new"] == 0 and again.counts["recordings_existing"] == 12
-    assert again.counts["reports_existing"] == 4
+    assert rep.counts["recordings_new"] == 11 and rep.counts["recordings_deduped"] == 1
+    assert rep.counts["reports_new"] == 4 and rep.counts["settings_new"] == 3
+    assert rep.counts["patients_new"] == 1 and rep.counts["devices_new"] == 1
+    assert not any("placeholder" in w for w in rep.warnings)
+    again = run_import(vendor_copy, target, merge=merge)
+    assert again.counts["recordings_new"] == 0 and again.counts["recordings_existing"] == 11
+    assert again.counts["reports_existing"] == 4 and again.counts["settings_existing"] == 3
     assert _tree_hash(vendor_copy) == before  # non-destructive
 
     repo = Repository(connect(target / "ecg_app.db"))
-    assert repo.patients.by("legacy_ref", "vendor:subuser:1").name == "Grygoriev"
+    pats = repo.patients.list()
+    assert [p.name for p in pats] == ["Grygoriev"]
+    assert len(repo.recordings.for_patient(pats[0].id)) == 11
+    assert repo.settings.get("language") == 0 and repo.settings.get("wave_type") == 1
+    assert repo.settings.get("mv_height_scale") == 1.0
     assert repo.accounts.list()[0].server_user_id == 530338
     for r in repo.recordings.list():
         pcm = (target / r.pcm_path).read_bytes()
@@ -128,3 +136,18 @@ def test_vendor_import(vendor_copy, tmp_path):
     cloud = repo.analysis.list()
     assert len(cloud) == 4 and all(a.source == "cloud" and a.payload["code"] == 200 for a in cloud)
     assert all((target / a.pdf_path).exists() for a in cloud)
+
+
+def test_vendor_import_dedupes_without_merge(vendor_copy, tmp_path):
+    # subusr/2 only holds a duplicate of a subusr/1 recording -> deduped, no placeholder
+    rep = run_import(vendor_copy, tmp_path / "n", dry_run=True)
+    assert rep.counts["patients_new"] == 1 and rep.counts["recordings_new"] == 11
+    assert rep.counts["recordings_deduped"] == 1
+
+
+def test_parse_merge():
+    from ecg_app.importers.vendor_import import parse_merge
+    assert parse_merge(["2=1", "3=1"]) == {2: 1, 3: 1}
+    for bad in (["2"], ["a=1"], ["1=1"]):
+        with pytest.raises(ValueError):
+            parse_merge(bad)
