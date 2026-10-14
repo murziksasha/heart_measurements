@@ -74,7 +74,10 @@ class TestImportLogic(unittest.TestCase):
             fpath = os.path.join(temp_dir, "R20261007120000")
             header = b"\x01\xea\x07\n\x07\x0c\x00\x00\x00\x00"
             with open(fpath, "wb") as f:
-                f.write(header + b"\x01" * 500)
+                trailer = b"\x00" * 16 + b"\x38\x04\x5a\xa5"
+                f.write(header + b"\x01" * 500 + trailer)
+            with open(os.path.join(temp_dir, "R20261007130000"), "wb") as f:
+                f.write(header + b"\x01" * 500)  # no trailer -> skipped
 
             records = scan_folder_records(temp_dir)
             self.assertEqual(len(records), 1)

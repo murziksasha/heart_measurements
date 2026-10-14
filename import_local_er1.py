@@ -63,21 +63,89 @@ def get_primary_db_path():
             return db
     return os.path.join(locs[0], "db_lepu_care_world.db")
 
+ER1_HEADER_LEN = 10
+ER1_TRAILER_LEN = 20
+ER1_TRAILER_MAGIC = b"\x38\x04\x5a\xa5"
+ER1_SAMPLE_RATE = 250
+
+
+class ER1FormatError(ValueError):
+    """Raised when an ER1 raw file is malformed."""
+
+
+def crc16_ccitt_false(data, crc=0xFFFF):
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, no reflection, no xorout)."""
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def parse_er1_header(r_bytes):
+    """Parses the 10-byte ER1 header: version, start datetime, reserved bytes."""
+    if len(r_bytes) < ER1_HEADER_LEN:
+        raise ER1FormatError("file shorter than ER1 header")
+    version = r_bytes[0]
+    year, month, day, hour, minute, second = struct.unpack("<HBBBBB", r_bytes[1:8])
+    try:
+        start = datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        start = None
+    return {"version": version, "start": start, "reserved": bytes(r_bytes[8:10])}
+
+
+def parse_er1_trailer(r_bytes):
+    """
+    Parses the 20-byte ER1 trailer:
+    u32 duration (seconds * 2, same as tb_record.duration), u32 CRC-16/CCITT-FALSE
+    over header+body (low 16 bits used), 8 reserved bytes, 4-byte magic 38 04 5A A5.
+    """
+    if len(r_bytes) < ER1_HEADER_LEN + ER1_TRAILER_LEN:
+        raise ER1FormatError("file shorter than header + trailer")
+    t = bytes(r_bytes[-ER1_TRAILER_LEN:])
+    if t[-4:] != ER1_TRAILER_MAGIC:
+        raise ER1FormatError("bad ER1 trailer magic: " + t[-4:].hex())
+    duration, checksum = struct.unpack("<II", t[:8])
+    return {
+        "duration": duration,
+        "duration_seconds": duration / 2,
+        "checksum": checksum,
+        "reserved": t[8:16],
+        "magic": t[16:],
+    }
+
+
+def verify_er1_checksum(r_bytes):
+    """True when the trailer checksum matches CRC-16/CCITT-FALSE of header+body."""
+    trailer = parse_er1_trailer(r_bytes)
+    return crc16_ccitt_false(bytes(r_bytes[:-ER1_TRAILER_LEN])) == trailer["checksum"]
+
+
+def _er1_body_end(r_bytes):
+    n = len(r_bytes)
+    if n >= ER1_HEADER_LEN + ER1_TRAILER_LEN and bytes(r_bytes[-4:]) == ER1_TRAILER_MAGIC:
+        return n - ER1_TRAILER_LEN
+    if n >= ER1_HEADER_LEN + ER1_TRAILER_LEN:
+        raise ER1FormatError("bad ER1 trailer magic: " + bytes(r_bytes[-4:]).hex())
+    # Too short to carry a trailer (synthetic/truncated data): decode everything.
+    return n
+
+
 def decompress_er1(r_bytes):
     """
     Decompresses raw ER1 differential PCM recording into 16-bit signed PCM samples (250Hz).
-    Byte-accurate reverse-engineered Lepu ER1 decompression algorithm.
-    Optimized for high-speed batch processing.
+    Skips the 10-byte header and stops before the 20-byte trailer (validated by magic).
     """
-    if len(r_bytes) <= 10:
+    if len(r_bytes) <= ER1_HEADER_LEN:
         return b""
 
-    pos = 10  # Skip 10-byte recording header
+    pos = ER1_HEADER_LEN
     state = 0
     accumulator = 0
     low_byte = 0
     samples = array.array('h')
-    n = len(r_bytes)
+    n = _er1_body_end(r_bytes)
 
     while pos < n:
         b = r_bytes[pos]
@@ -122,12 +190,12 @@ def decompress_er1(r_bytes):
 
 def count_samples(r_bytes):
     """Quickly counts decompressed samples without allocating memory."""
-    if len(r_bytes) <= 10:
+    if len(r_bytes) <= ER1_HEADER_LEN:
         return 0
-    pos = 10
+    pos = ER1_HEADER_LEN
     state = 0
     cnt = 0
-    n = len(r_bytes)
+    n = _er1_body_end(r_bytes)
     while pos < n:
         b = r_bytes[pos]
         pos += 1
@@ -459,7 +527,10 @@ def scan_folder_records(folder_path, subusr_id=None):
         # Count samples for duration
         with open(filepath, "rb") as f:
             full_data = f.read()
-        sample_count = count_samples(full_data)
+        try:
+            sample_count = count_samples(full_data)
+        except ER1FormatError:
+            continue  # not a valid ER1 recording
         seconds = sample_count // 250
         duration_display = format_duration(seconds)
 
