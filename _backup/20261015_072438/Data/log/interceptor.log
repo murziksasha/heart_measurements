@@ -1,0 +1,55 @@
+[2026-10-06 23:36:14.588] Interceptor started for PID 22624
+[2026-10-06 23:36:15.562] EVENT_SHOW: HWND=3473686, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=0, Size=1044x653
+[2026-10-06 23:36:17.629] EVENT_SHOW: HWND=10619206, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=3473686, Size=387x273
+[2026-10-06 23:36:17.630] Matched Download dialog 10619206! Hiding and running modal...
+[2026-10-06 23:36:17.671] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-06 23:38:01.459] Interceptor started for PID 20860
+[2026-10-06 23:38:02.392] EVENT_SHOW: HWND=17957160, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=0, Size=1044x653
+[2026-10-06 23:38:14.908] EVENT_SHOW: HWND=13633448, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=265x142
+[2026-10-06 23:38:19.357] EVENT_SHOW: HWND=13698984, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=265x157
+[2026-10-06 23:38:23.008] EVENT_SHOW: HWND=13764520, Cls=Qt5152QWindowIcon, Title='ECG Data Management', Owner=17957160, Size=387x273
+[2026-10-06 23:38:23.009] Matched Download dialog 13764520! Hiding and running modal...
+[2026-10-06 23:38:23.041] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:37:13.196] Interceptor started for PID 19016
+[2026-10-07 00:38:39.585] Matched Download dialog 7604364! Hiding and running modal...
+[2026-10-07 00:38:39.611] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:39:03.949] RunImportModal finished with exitCode 0
+[2026-10-07 00:39:08.313] Matched Download dialog 19988776! Hiding and running modal...
+[2026-10-07 00:39:08.348] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:43:08.497] RunImportModal finished with exitCode 0
+[2026-10-07 00:53:00.223] Unified interceptor started for PID 18548
+[2026-10-07 00:53:01.063] EVENT_SHOW main window 34342736
+[2026-10-07 00:53:01.085] Child + ADD button created successfully on 34342736
+[2026-10-07 00:54:33.271] Unified interceptor started for PID 10336
+[2026-10-07 00:54:34.064] EVENT_SHOW main window 17041892
+[2026-10-07 00:54:34.096] Child + ADD button created successfully on 17041892
+[2026-10-07 00:55:57.781] RunAddUserModal launching: "C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\manage_users.py" --add-gui
+[2026-10-07 00:56:13.881] Matched Download dialog 4589702! Hiding and running modal...
+[2026-10-07 00:56:13.923] RunImportModal starting: exe=C:\Python312\pythonw.exe, args="C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\import_gui.py"
+[2026-10-07 00:56:40.035] RunImportModal finished with exitCode 0
+[2026-10-07 01:12:59.661] RunAddUserModal exitCode: -1
+[2026-10-07 06:51:50.739] RunAddUserModal launching: "C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\manage_users.py" --add-gui
+[2026-10-07 06:51:55.695] RunAddUserModal exitCode: 0
+[2026-10-15 06:25:22.487] Unified interceptor started for PID 30940
+[2026-10-15 06:25:23.029] EVENT_SHOW main window 918502
+[2026-10-15 06:25:23.179] Child + Add User button created successfully at (-1, 106) on 918502
+[2026-10-15 06:25:25.422] Qt popup: HWND=1838584, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:25.424] Matched Download dialog 1838584 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:25.444] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:25:32.943] RunImportModal finished with exitCode 0
+[2026-10-15 06:25:41.651] Qt popup: HWND=1837540, Title='ECG Data Management', Size=331x177, Owner=918502
+[2026-10-15 06:25:41.815] Re-check Qt popup: HWND=1837540, Title='ECG Data Management', Size=331x177
+[2026-10-15 06:25:45.328] Qt popup: HWND=1903076, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:45.329] Matched Download dialog 1903076 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:45.343] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:25:51.569] RunImportModal finished with exitCode 1
+[2026-10-15 06:25:58.943] Qt popup: HWND=2296292, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:58.943] Matched Download dialog 2296292 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:58.959] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:46:07.514] Unified interceptor started for PID 33672
+[2026-10-15 06:46:08.620] EVENT_SHOW main window 3279576
+[2026-10-15 06:46:08.773] Child + Add User button created successfully at (-1, 106) on 3279576
+[2026-10-15 06:46:12.285] Qt popup: HWND=2296182, Title='ECG Data Management', Size=484x335, Owner=3279576
+[2026-10-15 06:46:12.287] Matched Download dialog 2296182 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:46:12.309] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:46:48.686] RunImportModal finished with exitCode 0
