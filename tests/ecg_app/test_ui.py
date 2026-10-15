@@ -96,6 +96,20 @@ def test_patient_crud_via_window(window):
     assert window.current_patient().name == "Іван Петренко"
     window.delete_patient(confirm=lambda p: True)
     assert [p.name for p in window.patients.items] == ["Grygoriev"]
+    assert window.last_trash is None  # nothing on disk for that patient
+
+
+def test_delete_patient_moves_files_to_trash(window, app_data):
+    repo, data = app_data
+    p = repo.patients.list()[0]
+    rec = repo.recordings.for_patient(p.id)[0]
+    files = [rec.raw_path, rec.pcm_path, f"reports/{rec.id}/cloud_report.json", f"reports/{rec.id}/cloud_report.pdf"]
+    assert all((data / f).exists() for f in files)
+    window.delete_patient(confirm=lambda p: True)
+    trash = window.last_trash
+    assert trash.parent == data / "trash" and trash.name.endswith(f"_{p.id}_Grygoriev")
+    assert all((trash / f).exists() and not (data / f).exists() for f in files)
+    assert repo.patients.list() == [] and repo.recordings.list() == []
 
 
 def test_patient_dialog(qtbot):
@@ -132,6 +146,39 @@ def test_viewer_real_pcm(qtbot):
     assert v.plot.getViewBox().viewRange()[0][0] == pytest.approx(50, abs=0.5)
     v.paper.setChecked(False)
     v.paper.setChecked(True)
+
+
+def test_seconds_axis_labels():
+    from ecg_app.ui.viewer import SecondsAxis
+    ax = SecondsAxis("bottom")
+    assert ax.tickStrings([1.0, 1.2, 1.04, 2.0], 1, 0.2) == ["1", "", "", "2"]
+
+
+def test_viewer_true_proportions(qtbot, app_data):
+    repo, _ = app_data
+    v = EcgViewer(settings=repo.settings)
+    qtbot.addWidget(v)
+    v.resize(1200, 500)
+    v.show()
+    qtbot.waitExposed(v)
+    v.load_pcm(SUB1 / f"2306490032{STAMP}")
+    assert not v.is_true()
+    v.true_mode.setChecked(True)
+    assert repo.settings.get("viewer_true_proportions") is True
+    (x0, x1), (y0, y1) = v.visible_range()
+    w, h = v.vb.size().width(), v.vb.size().height()
+    pxx, pxy = v.px_per_mm()
+    assert (x1 - x0) * 25 * pxx == pytest.approx(w, rel=0.02)   # 25 mm/s
+    assert (y1 - y0) * 10 * pxy == pytest.approx(h, rel=0.02)   # 10 mm/mV
+    v.resize(800, 500)
+    qtbot.wait(50)
+    assert v.visible_range()[0][1] - v.visible_range()[0][0] < x1 - x0
+    v2 = EcgViewer(settings=repo.settings)
+    qtbot.addWidget(v2)
+    assert v2.is_true()  # persisted
+    v.true_mode.setChecked(False)
+    lo, hi = v.visible_range()[0]
+    assert hi - lo == pytest.approx(10, abs=0.5)
 
 
 def test_import_worker(qtbot, app_data, tmp_path):
