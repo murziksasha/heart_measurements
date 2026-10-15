@@ -174,8 +174,20 @@ class ReportView(QWidget):
         if self.pdf_doc is not None:
             self.pdf_doc.close()
             if has_pdf:
+                self.pdf_view.setDocument(self.pdf_doc)
                 self.pdf_doc.load(str(self.pdf_path))
             self.inner.setTabEnabled(1, has_pdf)
+
+    def release_files(self):
+        """Close the embedded PDF so the file can be moved/deleted (Windows locks open files)."""
+        if self.pdf_doc is not None:
+            self.pdf_view.setDocument(None)
+            self.pdf_doc.close()
+        self.pdf_path = None
+        self.set_results([])
+
+    def pdf_is_open(self) -> bool:
+        return self.pdf_doc is not None and self.pdf_doc.status() == QPdfDocument.Status.Ready
 
     def set_filter(self, code):
         self.filter.setCurrentIndex(max(0, self.filter.findData(code)))

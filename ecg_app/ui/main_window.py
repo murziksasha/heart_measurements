@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QListView, QMai
                                QVBoxLayout, QWidget)
 
 from ..db.repository import Repository
-from ..storage import trash_patient_files
+from ..storage import TrashError, trash_patient_files
 from . import i18n
 from .dialogs import DevicesDialog, PatientDialog
 from .i18n import tr
@@ -25,6 +25,8 @@ class MainWindow(QMainWindow):
         self.repo, self.data_dir, self.db_file = repo, Path(data_dir), Path(db_file)
         self.vendor_default = vendor_default
         self.last_trash = None
+        self.last_error = None
+        self.show_error = None  # test hook: callable(msg)
         self.setWindowTitle(tr("app_title"))
         self.resize(1280, 800)
 
@@ -155,10 +157,28 @@ class MainWindow(QMainWindow):
             return
         ok = confirm(p) if confirm else QMessageBox.question(
             self, tr("delete"), tr("confirm_delete_patient", p.name)) == QMessageBox.Yes
-        if ok:
+        if not ok:
+            return
+        self.release_files()
+        try:
             self.last_trash = trash_patient_files(self.repo, self.data_dir, p)
-            self.repo.patients.delete(p.id)
-            self._reload_patients()
+        except TrashError as e:
+            self.last_error = str(e)
+            (self.show_error or self._error_box)(tr("delete_failed", e.path))
+            self._reload_patients(p.id)  # DB untouched; reload views
+            return
+        self.repo.patients.delete(p.id)
+        self._reload_patients()
+
+    def release_files(self):
+        """Release handles on recording/report files before moving or deleting them."""
+        self.report.release_files()
+        self.viewer.clear()
+        import gc
+        gc.collect()
+
+    def _error_box(self, msg):
+        QMessageBox.critical(self, tr("error"), msg)
 
     # dialogs --------------------------------------------------------------
     def open_import(self):
