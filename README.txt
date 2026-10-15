@@ -16,13 +16,14 @@ HOW TO USE:
    - In the top toolbar, click "Import Data".
    - The import chooser opens with three options:
      * "Import from folder": Opens the folder list. It uses a connected ER1
-       drive when it sees one, or browse to a folder of copied files (names
-       starting with R).
+       drive when it sees one, or browse to a folder of copied files (only
+       ER1 names: R + timestamp, optional serial).
      * "Import from device": Unhides the vendor download dialog to import directly
        from a connected recorder.
      * "Cancel": Closes the chooser and returns to the patient list.
    - When importing from folder, pick the patient. New recordings are checked.
-     Already imported ones stay unchecked; check one only if you mean to replace it.
+     A recording already imported for the chosen patient shows Already exist
+     and cannot be selected.
    - A saved AI report, when present, is shown on that row (heart rate and
      the first diagnosis).
    - Close the window after a successful import. ECG Data Management

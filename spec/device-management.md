@@ -22,12 +22,11 @@ Storage: SQLite Database (`tb_device`, `tb_bind_dev`), `config.ini`
 - The serial must match standard alphanumeric device formats.
 
 ### 2.2 USB Scan Matching
-- When clicking "Scan USB", the tool scans connected drives for ECG recording files (`R*`).
-- **Safety Rule:** A serial is bound only if the serial number is explicitly present in a file name on the drive. It **never** writes a built-in default or fallback serial.
+- When clicking "Scan USB", the tool scans connected drives for ER1 recording files matching `is_er1_recording`.
+- **Safety Rule:** A serial is bound only if the serial number is explicitly present in a file name on the drive (`(\d{8,12})R`). It **never** writes a built-in default or fallback serial.
 - Prevents corrupting user device bindings with generic manufacturer serials.
 
 ### 2.3 Database Tables
 - `tb_device`: Stores registered physical devices (`serialnum`, `devicename`, `devicetype`, `hwversion`, `fwversion`).
 - `tb_bind_dev`: Maps device serials to user accounts (`admin`, `serialnum`, `bindtime`).
 - Multi-location sync: Writes binding records to both active host `%LOCALAPPDATA%\ECG Browser\DATA\` and portable `Data/DATA/`.
-
