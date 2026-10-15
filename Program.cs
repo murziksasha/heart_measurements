@@ -545,14 +545,11 @@ namespace AI_ECG_Portable
                             int h = r.Bottom - r.Top;
 
                             // Update main window reference if detected here
-                            if (owner == IntPtr.Zero && w >= 600 && h >= 400)
+                            if (s_mainHwnd == IntPtr.Zero && owner == IntPtr.Zero && w >= 600 && h >= 400)
                             {
-                                if (s_mainHwnd == IntPtr.Zero)
-                                {
-                                    s_mainHwnd = hwnd;
-                                    LogInterceptor(appDir, string.Format("EVENT_SHOW main window {0}", hwnd));
-                                    AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                }
+                                s_mainHwnd = hwnd;
+                                LogInterceptor(appDir, string.Format("EVENT_SHOW main window {0}", hwnd));
+                                AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
                             }
                             else if (hwnd != s_mainHwnd)
                             {
@@ -565,7 +562,7 @@ namespace AI_ECG_Portable
                                 GetWindowText(hwnd, sbTitle, 256);
                                 string title = sbTitle.ToString();
 
-                                LogInterceptor(appDir, string.Format("Owned Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
+                                LogInterceptor(appDir, string.Format("Qt popup: HWND={0}, Title='{1}', Size={2}x{3}, Owner={4}", hwnd, title, w, h, owner));
 
                                 bool matched = TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
                                 if (!matched)
@@ -647,6 +644,11 @@ namespace AI_ECG_Portable
                     if (msg.message == WM_TIMER)
                     {
                         PlaceAddUserButton();
+
+                        if (!s_isImportModalRunning && s_mainHwnd != IntPtr.Zero)
+                        {
+                            ScanForDownloadDialog(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                        }
                     }
                     TranslateMessage(ref msg);
                     DispatchMessage(ref msg);
@@ -711,13 +713,41 @@ namespace AI_ECG_Portable
 
             // Match conditions:
             // - title contains Download or Import
-            // - size is within ±48 px of 387×273 (the dialog that used to match)
-            // - size is within ±40 px of the no-device popups already seen (265×142 and 265×157)
+            // - download-dialog sizes at 100%, 125%, 150%, 175%, and 200% (tolerance ±56 px), plus measured screenshot dialog (484x335)
+            // - small no-device popups (265x142 and 265x157)
             bool isDownloadDialog =
                 title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                (Math.Abs(w - 387) <= 48 && Math.Abs(h - 273) <= 48) ||
-                (Math.Abs(w - 265) <= 40 && (Math.Abs(h - 142) <= 40 || Math.Abs(h - 157) <= 40));
+                title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!isDownloadDialog)
+            {
+                int[][] downloadSizes = new int[][]
+                {
+                    new int[] { 387, 273 }, // 100%
+                    new int[] { 484, 341 }, // 125%
+                    new int[] { 484, 335 }, // Screenshot dialog (125% measured)
+                    new int[] { 581, 410 }, // 150%
+                    new int[] { 677, 478 }, // 175%
+                    new int[] { 774, 546 }, // 200%
+                };
+
+                for (int i = 0; i < downloadSizes.Length; i++)
+                {
+                    if (Math.Abs(w - downloadSizes[i][0]) <= 56 && Math.Abs(h - downloadSizes[i][1]) <= 56)
+                    {
+                        isDownloadDialog = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!isDownloadDialog)
+            {
+                if (Math.Abs(w - 265) <= 40 && (Math.Abs(h - 142) <= 40 || Math.Abs(h - 157) <= 40))
+                {
+                    isDownloadDialog = true;
+                }
+            }
 
             if (isDownloadDialog)
             {
@@ -754,9 +784,65 @@ namespace AI_ECG_Portable
             return false;
         }
 
+        private static void ScanForDownloadDialog(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (s_isImportModalRunning || targetProcess == null || targetProcess.HasExited)
+            {
+                return;
+            }
+
+            EnumWindows((hwnd, lParam) =>
+            {
+                if (s_isImportModalRunning)
+                {
+                    return false;
+                }
+
+                if (hwnd == IntPtr.Zero || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+                {
+                    return true;
+                }
+
+                uint pid;
+                GetWindowThreadProcessId(hwnd, out pid);
+                if (pid != (uint)targetProcess.Id)
+                {
+                    return true;
+                }
+
+                if (!IsWindowVisible(hwnd))
+                {
+                    return true;
+                }
+
+                StringBuilder sbClass = new StringBuilder(256);
+                GetClassName(hwnd, sbClass, 256);
+                if (!sbClass.ToString().Contains("Qt"))
+                {
+                    return true;
+                }
+
+                StringBuilder sbTitle = new StringBuilder(256);
+                GetWindowText(hwnd, sbTitle, 256);
+                string title = sbTitle.ToString();
+
+                RECT r;
+                GetWindowRectDpiAware(hwnd, out r);
+                int w = r.Right - r.Left;
+                int h = r.Bottom - r.Top;
+
+                if (TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir))
+                {
+                    return false;
+                }
+
+                return true;
+            }, IntPtr.Zero);
+        }
+
         private static void RecheckDownloadDialog(IntPtr hwnd, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
         {
-            if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+            if (s_isImportModalRunning || hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
             {
                 return;
             }
@@ -777,7 +863,7 @@ namespace AI_ECG_Portable
             int w = r.Right - r.Left;
             int h = r.Bottom - r.Top;
 
-            LogInterceptor(appDir, string.Format("Re-check owned Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
+            LogInterceptor(appDir, string.Format("Re-check Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
 
             TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
         }
@@ -1225,7 +1311,7 @@ namespace AI_ECG_Portable
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = pythonExe;
-            psi.Arguments = "\"" + scriptPath + "\" --folder";
+            psi.Arguments = "\"" + scriptPath + "\"";
             psi.WorkingDirectory = appDir;
             psi.UseShellExecute = false;
 
