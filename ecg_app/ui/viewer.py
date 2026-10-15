@@ -1,4 +1,4 @@
-"""ECG viewer for long 250 Hz single-lead recordings (pyqtgraph)."""
+"""ECG viewer for long 125 Hz single-lead recordings (pyqtgraph)."""
 
 from __future__ import annotations
 
@@ -61,6 +61,11 @@ class EcgViewer(QWidget):
         self.vb = self.plot.getViewBox()
         self.vb.sigXRangeChanged.connect(self._sync_scroll)
         self.vb.sigResized.connect(self._relayout)
+        self.highlight = pg.LinearRegionItem(movable=False, brush=pg.mkBrush(255, 200, 0, 90),
+                                             pen=pg.mkPen(230, 150, 0))
+        self.highlight.setZValue(-5)
+        self.highlight.hide()
+        self.plot.addItem(self.highlight)
         v.addWidget(self.plot, 1)
 
         self.scroll = QScrollBar(Qt.Horizontal)
@@ -88,8 +93,17 @@ class EcgViewer(QWidget):
         self.samples = np.asarray(samples, dtype=np.int16)
         self.mv = er1.to_mv(self.samples) * self.scale
         self.curve.setData(np.arange(len(self.mv)) / self.fs, self.mv)
+        self.highlight.hide()
         self.title.setText(title or tr("viewer"))
         self.show_window(0.0)
+
+    def highlight_samples(self, start: int, end: int):
+        """Highlight samples [start, end) and center the view on them."""
+        t0, t1 = start / self.fs, max(end, start + 1) / self.fs
+        self.highlight.setRegion((t0, t1))
+        self.highlight.show()
+        width = self.true_window()[0] if self.is_true() else self.width_s
+        self.show_window(max(0.0, (t0 + t1) / 2 - width / 2), width)
 
     def load_pcm(self, path: Path, title: str = ""):
         self.load_samples(er1.load_pcm(path), title or Path(path).name)

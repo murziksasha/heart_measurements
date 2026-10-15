@@ -70,7 +70,7 @@ def test_trailer_and_escapes():
     body = bytes([5, 0xFD, 0x80, 0x10, 0x01, 0x7F, 3, 0x81, 1])
     r = _make(body, duration=330)
     assert parse_er1_trailer(r)["duration"] == 330
-    assert parse_er1_trailer(r)["duration_seconds"] == 165
+    assert parse_er1_trailer(r)["duration_seconds"] == 330
     assert struct.unpack("<5h", decompress_er1(r)) == (5, 2, 0x110, 0x110 + 130, 0x110 + 2)
     assert verify_er1_checksum(r)
     assert not verify_er1_checksum(r[:10] + b"\x06" + r[11:])
@@ -101,7 +101,7 @@ def test_repair(tmp_path):
     assert (d / "123456789020260101000000").stat().st_size == len(good) + 40
     assert repair.main([str(d)]) == 0
     assert (d / "123456789020260101000000").read_bytes() == good
-    assert (d / "123456789020260101000001").stat().st_size == 500
+    assert (d / "123456789020260101000001").stat().st_size == 500  # 540 % 250 == 40 -> trimmed
     backups = list(tmp_path.glob("er1_repair_backup_*"))
     assert len(backups) == 1
     assert (backups[0] / "123456789020260101000000").stat().st_size == len(good) + 40

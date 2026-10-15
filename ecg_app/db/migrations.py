@@ -63,6 +63,10 @@ MIGRATIONS: list[str] = [
         remember INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # v2: ER1 is 125 Hz (v1 data assumed 250 Hz and halved durations)
+    """
+    UPDATE recordings SET sample_rate = 125, duration_s = duration_s * 2 WHERE sample_rate = 250;
+    """,
 ]
 
 LATEST = len(MIGRATIONS)
