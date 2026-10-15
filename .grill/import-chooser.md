@@ -1,8 +1,7 @@
 # Import chooser in front of Import Data
 
 > [!NOTE]
-> **Superseded (2026-10-15)**: See [open-file-import-no-er1.md](open-file-import-no-er1.md).
-> Clicking **Import Data** now directly launches the folder importer (`--folder`) without showing the chooser dialog. Device download remains available via **Original device import** within that window.
+> **Active (Restored 2026-10-15)**: Clicking **Import Data** launches `import_gui.py` with no arguments, opening the three-button chooser (`Import from folder`, `Import from device`, `Cancel`). `Import ECG.bat` continues to pass `--folder` for direct folder import.
 
 ## Grill
 

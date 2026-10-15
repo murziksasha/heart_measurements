@@ -1,6 +1,10 @@
 # Open file import when no ER1 is connected
 
 Date: 2026-10-15
+Updated: 2026-10-15
+
+> [!NOTE]
+> Direct `--folder` launch from the toolbar was replaced by restoring the three-button import chooser (see [import-chooser.md](import-chooser.md)). Robust interceptor improvements (per-monitor DPI awareness, multi-scale size bands, ownerless popup routing, and 200ms timer scanning) remain active.
 
 ## Intent
 

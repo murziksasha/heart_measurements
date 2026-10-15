@@ -59,7 +59,7 @@ DIRECTORY STRUCTURE:
 - Import ECG.bat       : Direct ECG file importer (graphical folder importer)
 - manage_users.py      : Patient list, add, and edit
 - manage_devices.py    : Recorder bind / unbind window
-- import_gui.py        : Import window
+- import_gui.py        : Import window (chooser and folder importer)
 - import_local_er1.py  : ECG file import and decompression
 - ui_theme.py          : Shared window colors and buttons
 - App/                 : Application binaries, Qt libraries, and drivers
