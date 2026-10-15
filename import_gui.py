@@ -494,14 +494,98 @@ class FolderImportApp(tk.Tk):
         self.destroy()
 
 
+class ImportChooserApp(tk.Tk):
+    """Chooser dialog: choose folder import or device download."""
+
+    def __init__(self):
+        super().__init__()
+        self.title(APP_TITLE)
+        self.configure(bg=BG)
+        apply_theme(self)
+        self.minsize(300, 160)
+        self.resizable(False, False)
+        center(self, 340, 200)
+
+        self.choice = "cancel"
+        self._top_after = None
+
+        self._build()
+
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda _event: self._cancel())
+
+        self.attributes("-topmost", True)
+        self._top_after = self.after(400, self._drop_topmost)
+        self.lift()
+        self.focus_force()
+
+    def _drop_topmost(self):
+        self._top_after = None
+        if self.winfo_exists():
+            self.attributes("-topmost", False)
+
+    def destroy(self):
+        if self._top_after is not None:
+            try:
+                self.after_cancel(self._top_after)
+            except Exception:
+                pass
+            self._top_after = None
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+        super().destroy()
+
+    def _build(self):
+        tk.Frame(self, bg=PRIMARY, height=4).pack(fill="x")
+
+        card = tk.Frame(self, bg=CARD, padx=20, pady=16, highlightthickness=1, highlightbackground=BORDER)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        button(card, "Import from folder", self._choose_folder, kind="primary").pack(fill="x", pady=(0, 8))
+        button(card, "Import from device", self._choose_device, kind="secondary").pack(fill="x", pady=(0, 8))
+        button(card, "Cancel", self._cancel, kind="secondary").pack(fill="x")
+
+    def _choose_folder(self):
+        self.choice = "folder"
+        self.destroy()
+
+    def _choose_device(self):
+        self.choice = "device"
+        self.destroy()
+
+    def _cancel(self):
+        self.choice = "cancel"
+        self.destroy()
+
+
 def main():
-    initial_dir = None
-    if len(sys.argv) > 1 and not sys.argv[-1].startswith("--"):
-        initial_dir = sys.argv[-1]
-    app = FolderImportApp(initial_dir=initial_dir)
-    app.mainloop()
-    sys.exit(app.exit_code)
+    folder_flag = False
+    folder_path = None
+    for arg in sys.argv[1:]:
+        if arg == "--folder":
+            folder_flag = True
+        elif not arg.startswith("--") and folder_path is None:
+            folder_path = arg
+
+    if not folder_flag and not folder_path:
+        chooser = ImportChooserApp()
+        chooser.mainloop()
+        if chooser.choice == "folder":
+            app = FolderImportApp()
+            app.mainloop()
+            sys.exit(app.exit_code)
+        elif chooser.choice == "device":
+            sys.exit(1)
+        else:
+            sys.exit(0)
+    else:
+        app = FolderImportApp(initial_dir=folder_path)
+        app.mainloop()
+        sys.exit(app.exit_code)
 
 
 if __name__ == "__main__":
     main()
+

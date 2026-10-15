@@ -14,8 +14,11 @@ HOW TO USE:
    with patient profile "Grygoriev" and your registered ER1 device ready.
 3. To import ECG recordings:
    - In the top toolbar, click "Import Data".
-   - One window opens. It uses a connected ER1 drive when it sees one,
-     or browse to a folder of copied files (names starting with R).
+   - The folder importer opens directly. It uses a connected ER1
+     drive when it sees one, or browse to a folder of copied files (names
+     starting with R).
+   - Device download is available via "Original device import" inside that
+     window if you need the vendor download dialog.
    - Pick the patient. New recordings are checked. Already imported ones
      stay unchecked; check one only if you mean to replace it.
    - A saved AI report, when present, is shown on that row (heart rate and

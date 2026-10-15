@@ -315,6 +315,7 @@ namespace AI_ECG_Portable
         private static IntPtr s_mainHwnd = IntPtr.Zero;
         private static IntPtr s_allowedDeviceHwnd = IntPtr.Zero;
         private static bool s_isImportModalRunning = false;
+        private static readonly object s_importLock = new object();
         private static bool s_isAddUserModalRunning = false;
         private static bool s_restartRequested = false;
 
@@ -537,13 +538,9 @@ namespace AI_ECG_Portable
 
                         if (cls.Contains("Qt"))
                         {
-                            StringBuilder sbTitle = new StringBuilder(256);
-                            GetWindowText(hwnd, sbTitle, 256);
-                            string title = sbTitle.ToString();
-
                             IntPtr owner = GetWindow(hwnd, GW_OWNER);
                             RECT r;
-                            GetWindowRect(hwnd, out r);
+                            GetWindowRectDpiAware(hwnd, out r);
                             int w = r.Right - r.Left;
                             int h = r.Bottom - r.Top;
 
@@ -564,28 +561,19 @@ namespace AI_ECG_Portable
                                     return;
                                 }
 
-                                // DeviceDownloadDialog check
-                                bool isDownloadDialog = (w >= 370 && w <= 405 && h >= 255 && h <= 290) ||
-                                                        title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                        title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
+                                StringBuilder sbTitle = new StringBuilder(256);
+                                GetWindowText(hwnd, sbTitle, 256);
+                                string title = sbTitle.ToString();
 
-                                if (isDownloadDialog && !s_isImportModalRunning)
+                                LogInterceptor(appDir, string.Format("Owned Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
+
+                                bool matched = TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                if (!matched)
                                 {
-                                    s_isImportModalRunning = true;
-                                    LogInterceptor(appDir, string.Format("Matched Download dialog {0}! Hiding and running modal...", hwnd));
-
-                                    ShowWindow(hwnd, SW_HIDE);
-
-                                    ThreadPool.QueueUserWorkItem(__ =>
+                                    ThreadPool.QueueUserWorkItem(_ =>
                                     {
-                                        try
-                                        {
-                                            RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                        }
-                                        finally
-                                        {
-                                            s_isImportModalRunning = false;
-                                        }
+                                        Thread.Sleep(150);
+                                        RecheckDownloadDialog(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
                                     });
                                 }
                             }
@@ -698,6 +686,102 @@ namespace AI_ECG_Portable
             catch {}
         }
 
+        private static bool GetWindowRectDpiAware(IntPtr hwnd, out RECT r)
+        {
+            IntPtr prevDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+            try
+            {
+                return GetWindowRect(hwnd, out r);
+            }
+            finally
+            {
+                if (prevDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(prevDpi);
+                }
+            }
+        }
+
+        private static bool TryInterceptDownloadDialog(IntPtr hwnd, string title, int w, int h, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+            {
+                return false;
+            }
+
+            // Match conditions:
+            // - title contains Download or Import
+            // - size is within ±48 px of 387×273 (the dialog that used to match)
+            // - size is within ±40 px of the no-device popups already seen (265×142 and 265×157)
+            bool isDownloadDialog =
+                title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                (Math.Abs(w - 387) <= 48 && Math.Abs(h - 273) <= 48) ||
+                (Math.Abs(w - 265) <= 40 && (Math.Abs(h - 142) <= 40 || Math.Abs(h - 157) <= 40));
+
+            if (isDownloadDialog)
+            {
+                lock (s_importLock)
+                {
+                    if (s_isImportModalRunning)
+                    {
+                        return true;
+                    }
+                    s_isImportModalRunning = true;
+                }
+
+                LogInterceptor(appDir, string.Format("Matched Download dialog {0} (Title='{1}', Size={2}x{3})! Hiding and running modal...", hwnd, title, w, h));
+
+                ShowWindow(hwnd, SW_HIDE);
+
+                ThreadPool.QueueUserWorkItem(__ =>
+                {
+                    try
+                    {
+                        RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                    }
+                    finally
+                    {
+                        lock (s_importLock)
+                        {
+                            s_isImportModalRunning = false;
+                        }
+                    }
+                });
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void RecheckDownloadDialog(IntPtr hwnd, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+            {
+                return;
+            }
+
+            StringBuilder sbClass = new StringBuilder(256);
+            GetClassName(hwnd, sbClass, 256);
+            if (!sbClass.ToString().Contains("Qt"))
+            {
+                return;
+            }
+
+            StringBuilder sbTitle = new StringBuilder(256);
+            GetWindowText(hwnd, sbTitle, 256);
+            string title = sbTitle.ToString();
+
+            RECT r;
+            GetWindowRectDpiAware(hwnd, out r);
+            int w = r.Right - r.Left;
+            int h = r.Bottom - r.Top;
+
+            LogInterceptor(appDir, string.Format("Re-check owned Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
+
+            TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+        }
+
         private static IntPtr FindMainWindow(int targetPid)
         {
             IntPtr found = IntPtr.Zero;
@@ -713,7 +797,7 @@ namespace AI_ECG_Portable
                     {
                         IntPtr owner = GetWindow(hwnd, GW_OWNER);
                         RECT r;
-                        GetWindowRect(hwnd, out r);
+                        GetWindowRectDpiAware(hwnd, out r);
                         int w = r.Right - r.Left;
                         int h = r.Bottom - r.Top;
                         if (owner == IntPtr.Zero && w >= 600 && h >= 400 && IsWindowVisible(hwnd))
@@ -1141,13 +1225,13 @@ namespace AI_ECG_Portable
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = pythonExe;
-            psi.Arguments = "\"" + scriptPath + "\"";
+            psi.Arguments = "\"" + scriptPath + "\" --folder";
             psi.WorkingDirectory = appDir;
             psi.UseShellExecute = false;
 
             LogInterceptor(appDir, string.Format("RunImportModal starting: exe={0}, args={1}", pythonExe, psi.Arguments));
 
-            int exitCode = 0;
+            int exitCode = -1;
             try
             {
                 AllowSetForegroundWindow(ASFW_ANY);
@@ -1160,14 +1244,14 @@ namespace AI_ECG_Portable
             catch (Exception ex)
             {
                 LogInterceptor(appDir, string.Format("RunImportModal exception: {0}", ex.Message));
-                exitCode = 1;
+                exitCode = -1;
             }
 
             LogInterceptor(appDir, string.Format("RunImportModal finished with exitCode {0}", exitCode));
 
             if (exitCode == 1)
             {
-                // "From Device" -> unhide native dialog
+                // "Original device import" -> unhide native dialog
                 s_allowedDeviceHwnd = dialogHwnd;
                 ShowWindow(dialogHwnd, SW_SHOW);
                 SetForegroundWindow(dialogHwnd);
