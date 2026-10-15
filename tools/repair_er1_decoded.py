@@ -41,9 +41,9 @@ def expected_length(decoded_path):
         if trailer_expected_length(r_bytes) == exp:
             src += " + trailer duration"
         return exp, src
-    # No R file: whole seconds at 250 Hz -> length is a multiple of 500 bytes.
+    # No R file: whole seconds at 125 Hz -> length is a multiple of 250 bytes.
     size = os.path.getsize(decoded_path)
-    if size % 500 == BUG_EXTRA:
+    if size % 250 == BUG_EXTRA:
         return size - BUG_EXTRA, "length heuristic (no R file)"
     return None, "no R file"
 
@@ -66,7 +66,7 @@ def find_candidates(data_dir):
 
 
 def trailer_expected_length(r_bytes):
-    """Expected decoded bytes from trailer duration (seconds*2): duration*125 samples * 2 bytes."""
+    """Expected decoded bytes from trailer duration (seconds): duration*125 samples * 2 bytes."""
     return parse_er1_trailer(r_bytes)["duration"] * 250
 
 

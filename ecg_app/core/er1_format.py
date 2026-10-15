@@ -12,7 +12,9 @@ import numpy as np
 HEADER_LEN = 10
 TRAILER_LEN = 20
 TRAILER_MAGIC = b"\x38\x04\x5a\xa5"
-SAMPLE_RATE = 250
+SAMPLE_RATE = 125  # verified: samples / trailer seconds and R-peak HR vs cloud report
+# Cloud report sample positions (startPos/endPos) are at 250 Hz, i.e. 2x PCM index.
+REPORT_POS_RATE = 250
 # UNVERIFIED: typical Lepu ER1 scale; confirm against the vendor waveform.
 MV_PER_LSB = 0.002467
 
@@ -30,14 +32,14 @@ class ER1Header:
 
 @dataclass(frozen=True)
 class ER1Trailer:
-    duration: int  # seconds * 2 (vendor convention)
+    duration: int  # recording length in seconds (= samples / 125)
     checksum: int  # CRC-16/CCITT-FALSE of header+body, stored as u32
     reserved: bytes
     magic: bytes
 
     @property
     def duration_seconds(self) -> float:
-        return self.duration / 2
+        return float(self.duration)
 
 
 def crc16_ccitt_false(data: bytes, crc: int = 0xFFFF) -> int:
@@ -74,7 +76,7 @@ def verify_checksum(raw: bytes) -> bool:
 
 
 def decode(raw: bytes) -> np.ndarray:
-    """Decode an R file to int16 samples (250 Hz, single lead). Validates trailer."""
+    """Decode an R file to int16 samples (125 Hz, single lead). Validates trailer."""
     parse_trailer(raw)
     body = raw[HEADER_LEN:-TRAILER_LEN]
     out = np.empty(len(body), dtype=np.int16)

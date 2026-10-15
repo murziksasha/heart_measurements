@@ -15,6 +15,7 @@ from .dialogs import DevicesDialog, PatientDialog
 from .i18n import tr
 from .import_dialog import ImportDialog, VendorMigrationDialog
 from .models import PatientListModel, RecordingTableModel
+from .report_view import ReportView
 from .viewer import EcgViewer
 
 
@@ -50,9 +51,8 @@ class MainWindow(QMainWindow):
         self.rec_view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.rec_view.verticalHeader().hide()
         self.viewer = EcgViewer(repo.settings.get("mv_height_scale", 1.0) or 1.0, settings=repo.settings)
-        self.report = QLabel(tr("report_placeholder"))
-        self.report.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.report.setWordWrap(True)
+        self.report = ReportView(self.data_dir)
+        self.report.jump.connect(self.jump_to_samples)
         self.tabs = QTabWidget()
         self.tabs.addTab(self.viewer, tr("viewer"))
         self.tabs.addTab(self.report, tr("report"))
@@ -119,9 +119,11 @@ class MainWindow(QMainWindow):
     def open_recording(self, r):
         if r.pcm_path and (self.data_dir / r.pcm_path).exists():
             self.viewer.load_pcm(self.data_dir / r.pcm_path, r.start_time)
-        res = self.repo.analysis.for_recording(r.id)
-        files = [a.pdf_path for a in res if a.pdf_path]
-        self.report.setText(tr("report_placeholder") + ("\n\n" + tr("report_files", ", ".join(files)) if files else ""))
+        self.report.set_results(self.repo.analysis.for_recording(r.id))
+
+    def jump_to_samples(self, start, end):
+        self.tabs.setCurrentWidget(self.viewer)
+        self.viewer.highlight_samples(start, end)
 
     # patients -------------------------------------------------------------
     def _reload_patients(self, select_id=None):

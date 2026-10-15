@@ -36,7 +36,7 @@ class Recording:
     patient_id: int
     start_time: str  # ISO local datetime
     duration_s: float
-    sample_rate: int = 250
+    sample_rate: int = 125
     device_id: Optional[int] = None
     raw_path: Optional[str] = None  # relative to data dir
     raw_sha256: Optional[str] = None

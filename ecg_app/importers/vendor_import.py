@@ -5,7 +5,7 @@ writes the new schema + layout:
 
     <data>/ecg_app.db
     <data>/recordings/<patient_id>/<serial>_<YYYYMMDDhhmmss>.er1   raw R file copy
-    <data>/recordings/<patient_id>/<serial>_<YYYYMMDDhhmmss>.pcm   int16 LE, 250 Hz
+    <data>/recordings/<patient_id>/<serial>_<YYYYMMDDhhmmss>.pcm   int16 LE, 125 Hz
     <data>/reports/<recording_id>/cloud_report.json|.pdf
 """
 
@@ -281,7 +281,7 @@ def run_import(vendor_root: Path, data_dir: Path, dry_run: bool = False, merge: 
                         rep.warnings.append(f"{vr.pcm_file.name}: vendor PCM differs from re-decode; using re-decode")
                 else:
                     pcm = vr.pcm_file.read_bytes()
-                    if len(pcm) % 500 == 40:
+                    if len(pcm) % 250 == 40:
                         pcm = pcm[:-40]
                         rep.counts["pcm_trimmed_40"] += 1
                     duration = len(pcm) / 2 / er1.SAMPLE_RATE

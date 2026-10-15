@@ -31,7 +31,7 @@ def test_decode_escapes_numpy():
     s = er1.decode(r)
     assert s.dtype == np.int16
     assert s.tolist() == [5, 2, 0x110, 0x110 + 130, 0x110 + 2]
-    assert er1.parse_trailer(r).duration_seconds == 165
+    assert er1.parse_trailer(r).duration_seconds == 330
     assert er1.verify_checksum(r)
     assert er1.parse_header(r).start.isoformat() == "2026-10-04T16:18:55"
 
@@ -131,7 +131,7 @@ def test_vendor_import(vendor_copy, tmp_path):
     for r in repo.recordings.list():
         pcm = (target / r.pcm_path).read_bytes()
         assert hashlib.sha256(pcm).hexdigest() == r.pcm_sha256
-        assert len(pcm) == int(r.duration_s * 500)
+        assert len(pcm) == int(r.duration_s * 250)
         assert er1.decode_to_bytes((target / r.raw_path).read_bytes()) == pcm
     cloud = repo.analysis.list()
     assert len(cloud) == 4 and all(a.source == "cloud" and a.payload["code"] == 200 for a in cloud)
@@ -151,3 +151,18 @@ def test_parse_merge():
     for bad in (["2"], ["a=1"], ["1=1"]):
         with pytest.raises(ValueError):
             parse_merge(bad)
+
+
+def test_migration_v2_fixes_sample_rate(tmp_path):
+    import sqlite3 as sq
+    from ecg_app.db.migrations import MIGRATIONS
+    conn = sq.connect(tmp_path / "old.db")
+    conn.executescript(MIGRATIONS[0] + "\nPRAGMA user_version = 1;")
+    conn.execute("INSERT INTO patients(name) VALUES ('x')")
+    conn.execute("INSERT INTO recordings(patient_id, start_time, duration_s) VALUES (1, '2026-01-01 00:00:00', 165)")
+    conn.commit()
+    conn.close()
+    repo = Repository(connect(tmp_path / "old.db"))
+    r = repo.recordings.list()[0]
+    assert (r.sample_rate, r.duration_s) == (125, 330)
+    assert current_version(repo.conn) == LATEST == 2

@@ -66,10 +66,10 @@ def test_i18n():
 def test_window_loads_real_data(window):
     assert window.patients.rowCount() == 1
     assert window.recordings.rowCount() == 1
-    assert window.recordings.data(window.recordings.index(0, 1)) == "0:02:45"
+    assert window.recordings.data(window.recordings.index(0, 1)) == "0:05:30"
     assert window.recordings.data(window.recordings.index(0, 3)) == "Хмара"
-    assert window.viewer.duration_s() == pytest.approx(165)
-    assert "cloud_report.pdf" in window.report.text()
+    assert window.viewer.duration_s() == pytest.approx(330)
+    assert window.report.stack.currentIndex() == 1 and window.report.pdf_btn.isEnabled()
 
 
 class _FakeDialog:

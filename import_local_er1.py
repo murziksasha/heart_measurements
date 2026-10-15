@@ -98,7 +98,7 @@ def parse_er1_header(r_bytes):
 def parse_er1_trailer(r_bytes):
     """
     Parses the 20-byte ER1 trailer:
-    u32 duration (seconds * 2, same as tb_record.duration), u32 CRC-16/CCITT-FALSE
+    u32 duration (seconds, same as tb_record.duration), u32 CRC-16/CCITT-FALSE
     over header+body (low 16 bits used), 8 reserved bytes, 4-byte magic 38 04 5A A5.
     """
     if len(r_bytes) < ER1_HEADER_LEN + ER1_TRAILER_LEN:
@@ -109,7 +109,7 @@ def parse_er1_trailer(r_bytes):
     duration, checksum = struct.unpack("<II", t[:8])
     return {
         "duration": duration,
-        "duration_seconds": duration / 2,
+        "duration_seconds": float(duration),
         "checksum": checksum,
         "reserved": t[8:16],
         "magic": t[16:],
@@ -134,7 +134,7 @@ def _er1_body_end(r_bytes):
 
 def decompress_er1(r_bytes):
     """
-    Decompresses raw ER1 differential PCM recording into 16-bit signed PCM samples (250Hz).
+    Decompresses raw ER1 differential PCM recording into 16-bit signed PCM samples (125 Hz).
     Skips the 10-byte header and stops before the 20-byte trailer (validated by magic).
     """
     if len(r_bytes) <= ER1_HEADER_LEN:
@@ -531,7 +531,7 @@ def scan_folder_records(folder_path, subusr_id=None):
             sample_count = count_samples(full_data)
         except ER1FormatError:
             continue  # not a valid ER1 recording
-        seconds = sample_count // 250
+        seconds = sample_count // 125
         duration_display = format_duration(seconds)
 
         is_dup = timestamp in existing
@@ -587,8 +587,8 @@ def import_single_file(filepath, sn=None, subusr_id=None, force=False):
     # Decompress PCM
     dat_bytes = decompress_er1(r_bytes)
     total_samples = len(dat_bytes) // 2
-    seconds = total_samples // 250
-    duration_val = seconds * 2  # At 250Hz sample rate, duration parameter is 2 * seconds
+    seconds = total_samples // 125
+    duration_val = seconds  # ER1 records at 125 Hz; tb_record.duration is in seconds
     now_ts = datetime.now().strftime('%Y%m%d%H%M%S')
 
     raw_filename = f"{sn}R{timestamp}"
