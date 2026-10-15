@@ -23,6 +23,40 @@ Subsystem: `IMAGE_SUBSYSTEM_WINDOWS_GUI (2)`
   2. Safely deletes temporary host `%LOCALAPPDATA%\ECG Browser`.
   3. Restores original host profile from backup directory.
 
+### 1.3 Safe Portable Vendor Update
+- **Timing & Eligibility**:
+  - Runs after single-instance mutex check and after verifying `App\ECG Data Management.exe` exists, prior to the `%LOCALAPPDATA%\ECG Browser` host-profile swap.
+  - Source location: `C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe`.
+  - Condition: Offered only when the installed executable's UTC write time (`File.GetLastWriteTimeUtc`) is strictly later than `App\ECG Data Management.exe`. If the installed executable is missing, older, or has the same timestamp, startup proceeds normally without prompting. `HintVer` and Settings labels are ignored.
+- **Skip File (`vendor-update-skip.txt`)**:
+  - Located beside the launcher (`<appDir>\vendor-update-skip.txt`).
+  - Stores the UTC ticks of declined builds. If the file exists and contains ticks matching the installed executable, the update prompt is suppressed. Any other file content or a missing file prompts the user.
+- **Confirmation Dialog**:
+  - Fixed, centered modal dialog (`AI-ECG Portable`) presenting three buttons:
+    - **Yes**: Proceeds with backup, staging, and atomic directory replacement.
+    - **Not now**: Cancels the update for this session and continues normal launch without writing to the skip file (Escape key maps here).
+    - **Don't ask for this build**: Writes the installed build's UTC ticks to `vendor-update-skip.txt` and continues normal launch.
+- **Pre-Update Backups & Space Safety**:
+  - Calculates required disk space: total bytes in portable `Data\` (0 if absent) plus total bytes in the installed tree (excluding uninstaller files).
+  - Verifies available space using `DriveInfo.AvailableFreeSpace`. If insufficient, displays a warning and starts the current version without modifying files.
+  - Generates a timestamped backup directory: `_backup\<yyyyMMdd_HHmmss>\`.
+  - Copies `Data\` to `_backup\<stamp>\Data\` and current `App\` to `_backup\<stamp>\App\`. Backups are never deleted automatically. If any backup step fails, live `App\` remains untouched and normal startup continues.
+- **Payload Staging & File Exclusions**:
+  - Prepares `_backup\<stamp>\App-staged\` by copying current `App\` and overlaying files from `C:\Program Files (x86)\ECG Data Management\`.
+  - File exclusions: Always skips `unins000.exe` and `unins000.dat` at any depth.
+  - Preserves App-only files: Overwrites existing vendor files and copies Qt plugins/new files without deleting files that exist only in `App\`.
+  - Atomic swap: `Directory.Move` live `App\` to `_backup\<stamp>\App-previous\`, then moves `App-staged\` to `App\`. If the second move fails, `App-previous\` is restored to `App\`.
+- **Process Monitoring & No-Window Rollback**:
+  - Tracks whether the main window appears via `s_mainWindowSeen` (set when `FindMainWindow` or the `EVENT_OBJECT_SHOW` hook identifies the ownerless Qt main window with `w >= 600 && h >= 400`).
+  - If the updated process exits and `s_mainWindowSeen` was never true:
+    - Shutdown sync is skipped: host profile changes are not copied back over portable `Data\`. State that shutdown sync is skipped only for the failed updated process.
+    - Failed `App\` moved to `_backup\<stamp>\App-failed\`.
+    - Restores `App\` by copying `_backup\<stamp>\App\` back into place (retaining the backup copy).
+    - Displays a rollback notice dialog displaying the `_backup\<stamp>\` path.
+    - Cleans host directory, rebuilds host profile from portable `Data\`, and launches the restored executable once.
+    - The second start syncs data normally if its main window appears; if it also exits with no window, shutdown sync is skipped again.
+  - If the main window was seen, updated files are retained and standard shutdown sync executes normally upon exit.
+
 ---
 
 ## 2. Unified Interceptor Thread Architecture

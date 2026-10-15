@@ -53,3 +53,4 @@
 [2026-10-15 06:46:12.287] Matched Download dialog 2296182 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
 [2026-10-15 06:46:12.309] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
 [2026-10-15 06:46:48.686] RunImportModal finished with exitCode 0
+[2026-10-15 07:54:37.473] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe

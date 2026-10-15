@@ -53,6 +53,15 @@ PATIENT MANAGEMENT:
   address. There is no note field; the patient table has nowhere to store one.
 - Deleting a patient who has recordings asks you to type the name.
 
+SAFE VENDOR UPDATES:
+- Update your installed ECG Data Management app first (vendor "Check for Updates"
+  or a new installer).
+- The next time you start "AI-ECG Portable.exe", it detects the newer installed
+  build and asks if you wish to update the portable copy.
+- Your patients, recordings, launcher, and Python tools stay intact.
+- A full backup of "Data/" and previous "App/" files is saved under "_backup/<timestamp>/"
+  before any changes are made and is permanently kept.
+
 DIRECTORY STRUCTURE:
 - AI-ECG Portable.exe  : Portable launcher (run this file)
 - Manage Users.bat     : Patient Manager tool (add/list/manage patient profiles)
@@ -67,4 +76,7 @@ DIRECTORY STRUCTURE:
 - Data/                : Portable patient database, reports, settings, and logs
   - config.ini         : User preferences and settings
   - DATA/              : SQLite database and patient ECG records/reports
+- _backup/             : Pre-update backups of Data/ and App/ (never deleted automatically)
+- vendor-update-skip.txt : Saved tick timestamp when declining updates for a build
 ========================================================================
+
