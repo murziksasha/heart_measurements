@@ -66,6 +66,8 @@ _T = {
     "run": ("Запустити", "Run"),
     "restart_hint": ("Мову буде змінено після перезапуску.", "Language changes after restart."),
     "error": ("Помилка", "Error"),
+    "delete_failed": ("Не вдалося перемістити файл до кошика (він відкритий в іншій програмі?):\n{}\nПацієнта не видалено.",
+                      "Could not move a file to trash (open in another program?):\n{}\nThe patient was not deleted."),
     "no_results": ("Для цього запису ще немає результатів аналізу.", "No analysis results for this recording yet."),
     "result_header": ("Джерело: {} · звіт від {}", "Source: {} · report of {}"),
     "source_cloud": ("Хмара Viatom AI", "Viatom cloud AI"),

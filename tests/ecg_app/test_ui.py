@@ -105,7 +105,10 @@ def test_delete_patient_moves_files_to_trash(window, app_data):
     rec = repo.recordings.for_patient(p.id)[0]
     files = [rec.raw_path, rec.pcm_path, f"reports/{rec.id}/cloud_report.json", f"reports/{rec.id}/cloud_report.pdf"]
     assert all((data / f).exists() for f in files)
+    if hasattr(window.report, "pdf_doc") and window.report.pdf_doc is not None:
+        assert window.report.pdf_is_open()  # embedded PDF holds the file (locks it on Windows)
     window.delete_patient(confirm=lambda p: True)
+    assert not window.report.pdf_is_open() and len(window.viewer.samples) == 0
     trash = window.last_trash
     assert trash.parent == data / "trash" and trash.name.endswith(f"_{p.id}_Grygoriev")
     assert all((trash / f).exists() and not (data / f).exists() for f in files)
@@ -216,3 +219,51 @@ def test_vendor_migration_dialog(qtbot, small_vendor, tmp_path):
     d.wait()
     assert d.result.counts["recordings_new"] == 1
     assert Repository(connect(tmp_path / "new" / "ecg_app.db")).patients.list()[0].name == "Grygoriev"
+
+
+def test_delete_patient_lock_failure_keeps_everything(window, app_data, monkeypatch):
+    import shutil as sh
+    from ecg_app import storage
+    repo, data = app_data
+    p = repo.patients.list()[0]
+    rec = repo.recordings.for_patient(p.id)[0]
+    files = [rec.raw_path, rec.pcm_path, f"reports/{rec.id}/cloud_report.pdf"]
+    calls = {"n": 0}
+
+    def locked_mover(src, dst):
+        calls["n"] += 1
+        if "reports" in src:
+            raise PermissionError(32, "The process cannot access the file")
+        return sh.move(src, dst)
+
+    real = storage.trash_patient_files
+    monkeypatch.setattr("ecg_app.ui.main_window.trash_patient_files",
+                        lambda *a, **k: real(*a, mover=locked_mover, attempts=3, delay=0, **k))
+    errors = []
+    window.show_error = errors.append
+    window.delete_patient(confirm=lambda p: True)
+    assert len(errors) == 1  # message shown
+    assert window.last_error and repo.patients.get(p.id) is not None
+    assert len(repo.recordings.for_patient(p.id)) == 1
+    assert all((data / f).exists() for f in files)  # rolled back
+    assert not (data / "trash").exists() or not any((data / "trash").iterdir())
+    assert calls["n"] >= 3
+
+
+def test_move_with_retry(tmp_path):
+    from ecg_app.storage import move_with_retry
+    src, dst = tmp_path / "a", tmp_path / "b"
+    src.write_text("x")
+    n = {"i": 0}
+
+    def flaky(s, d):
+        n["i"] += 1
+        if n["i"] < 3:
+            raise PermissionError(32, "locked")
+        import shutil
+        shutil.move(s, d)
+    move_with_retry(src, dst, attempts=5, delay=0, mover=flaky)
+    assert dst.read_text() == "x" and n["i"] == 3
+    src.write_text("y")
+    with pytest.raises(PermissionError):
+        move_with_retry(src, tmp_path / "c", attempts=2, delay=0, mover=lambda s, d: (_ for _ in ()).throw(PermissionError()))

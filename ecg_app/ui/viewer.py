@@ -105,6 +105,15 @@ class EcgViewer(QWidget):
         width = self.true_window()[0] if self.is_true() else self.width_s
         self.show_window(max(0.0, (t0 + t1) / 2 - width / 2), width)
 
+    def clear(self):
+        """Drop loaded samples (no file handles are kept: load_pcm reads into memory)."""
+        self.samples = np.zeros(0, dtype=np.int16)
+        self.mv = np.zeros(0)
+        self.curve.setData([], [])
+        self.highlight.hide()
+        self.title.setText(tr("no_recording"))
+        self._update_scroll(self.width_s)
+
     def load_pcm(self, path: Path, title: str = ""):
         self.load_samples(er1.load_pcm(path), title or Path(path).name)
 
