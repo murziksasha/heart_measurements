@@ -43,20 +43,25 @@ Subsystem: `IMAGE_SUBSYSTEM_WINDOWS_GUI (2)`
 - Ignored Windows: Ignores `s_allowedDeviceHwnd` (the native dialog revealed after choosing **Import from device**).
 
 ### 2.4 Download Dialog Interception (`TryInterceptDownloadDialog`)
+- **Exclusion Filters (Non-Download Popups):**
+  - Small alerts/confirmations (e.g. Delete record prompt, messageboxes): `height < 200` or `width < 340`.
+  - Device Info Dialog (`DeviceInfoDialog`): `554 × 388` at 125% DPI (or scaled equivalents).
+  - Settings Dialog (`SettingDialog`): `443 × 288` at 125% DPI (or scaled equivalents).
+  - Notifications Dialog (`NotifyDialog`): `400 × 327` at 125% DPI (or scaled equivalents).
 - **Matching Criteria:**
   1. Window title contains `"Download"` or `"Import"` (case-insensitive).
-  2. OR window dimensions match known scaled download dialog bands (tolerance ±56 px):
+  2. OR window dimensions match known scaled download dialog sizes (`DeviceDownloadDialog`) with strict tolerance (±14 px):
      - **100% DPI:** `387 × 273`
-     - **125% DPI:** `484 × 341`
-     - **Screenshot Measured:** `484 × 335`
+     - **125% DPI:** `484 × 335` (measured) / `484 × 341` (nominal)
      - **150% DPI:** `581 × 410`
      - **175% DPI:** `677 × 478`
      - **200% DPI:** `774 × 546`
-  3. OR window dimensions match small no-device dialogs (tolerance ±40 px):
-     - `265 × 142`
-     - `265 × 157`
+- **Click Tracking Validation:**
+  - `WH_MOUSE_LL` hook monitors left clicks on the top toolbar "Import Data" button (`fromRight` in `[170..265] × dpiScale`, `y` in `[12..58] × dpiScale`).
+  - Records `s_lastImportBtnClickTime = DateTime.UtcNow`.
 - **Execution Actions:**
   - Guards against re-entrancy via `lock (s_importLock)` and `s_isImportModalRunning`.
+  - Resets `s_lastImportBtnClickTime = DateTime.MinValue`.
   - Hides intercepted window immediately via `ShowWindow(hwnd, SW_HIDE)`.
   - Offloads modal execution to background ThreadPool calling `RunImportModal`.
 - **Delayed Recheck:**
@@ -67,6 +72,7 @@ Subsystem: `IMAGE_SUBSYSTEM_WINDOWS_GUI (2)`
 - Actions on `WM_TIMER`:
   1. Repositions sidebar `+ Add User` button via `PlaceAddUserButton()`.
   2. If `!s_isImportModalRunning && s_mainHwnd != IntPtr.Zero`, invokes `ScanForDownloadDialog()`:
+     - Only scans if "Import Data" was clicked within the last 3.0 seconds (`DateTime.UtcNow - s_lastImportBtnClickTime <= 3.0s`), ensuring background polling never touches standing windows (Settings, Device Info, Notifications).
      - Calls `EnumWindows` to detect any visible Qt window from target process that bypassed `EVENT_OBJECT_SHOW`.
      - Skips `s_mainHwnd` and `s_allowedDeviceHwnd`.
      - Runs `TryInterceptDownloadDialog()`. If matched, stops window enumeration immediately.

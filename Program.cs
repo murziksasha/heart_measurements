@@ -243,6 +243,9 @@ namespace AI_ECG_Portable
         private static extern uint SetTextColor(IntPtr hdc, uint crColor);
 
         [DllImport("gdi32.dll")]
+        private static extern int GetDeviceCaps(IntPtr hdc, int nIndex);
+
+        [DllImport("gdi32.dll")]
         private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -318,6 +321,7 @@ namespace AI_ECG_Portable
         private static readonly object s_importLock = new object();
         private static bool s_isAddUserModalRunning = false;
         private static bool s_restartRequested = false;
+        private static DateTime s_lastImportBtnClickTime = DateTime.MinValue;
 
         private static IntPtr s_btnAddHwnd = IntPtr.Zero;
         private static int s_btnX = -1;
@@ -584,43 +588,79 @@ namespace AI_ECG_Portable
                     (uint)targetProcess.Id, 0,
                     WINEVENT_OUTOFCONTEXT);
 
-                // 3. Install Mouse Hook for Right-Click on "All Users"
+                // 3. Install Mouse Hook for Right-Click on "All Users" and Left-Click on "Import Data"
                 s_mouseHookProc = (int nCode, IntPtr wParam, IntPtr lParam) =>
                 {
-                    if (nCode >= 0 && (int)wParam == WM_RBUTTONUP && !s_isAddUserModalRunning && !s_isImportModalRunning)
+                    if (nCode >= 0 && !s_isAddUserModalRunning && !s_isImportModalRunning)
                     {
                         if (s_mainHwnd != IntPtr.Zero && IsWindow(s_mainHwnd))
                         {
                             IntPtr fg = GetForegroundWindow();
                             if (fg == s_mainHwnd)
                             {
-                                MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                                POINT clientPt = hs.pt;
-
-                                // All Users row, in the Qt window's own pixels. This hook's thread
-                                // is otherwise DPI-unaware, which shifts the hit test on resize.
-                                IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
-                                ScreenToClient(s_mainHwnd, ref clientPt);
-                                if (previousDpi != IntPtr.Zero)
+                                int wp = (int)wParam;
+                                if (wp == WM_RBUTTONUP)
                                 {
-                                    SetThreadDpiAwarenessContext(previousDpi);
-                                }
-                                int rowRight = s_sidebarRight > 40 ? s_sidebarRight : 215;
-                                if (clientPt.x >= 16 && clientPt.x <= rowRight && clientPt.y >= 134 && clientPt.y <= 168)
-                                {
-                                    IntPtr hMenu = CreatePopupMenu();
-                                    AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
-                                    SetForegroundWindow(s_mainHwnd);
-                                    int cmd = TrackPopupMenuEx(hMenu, 0x0100 | 0x0002, hs.pt.x, hs.pt.y, s_mainHwnd, IntPtr.Zero);
-                                    DestroyMenu(hMenu);
+                                    MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                                    POINT clientPt = hs.pt;
 
-                                    if (cmd == 101)
+                                    // All Users row, in the Qt window's own pixels. This hook's thread
+                                    // is otherwise DPI-unaware, which shifts the hit test on resize.
+                                    IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+                                    ScreenToClient(s_mainHwnd, ref clientPt);
+                                    if (previousDpi != IntPtr.Zero)
                                     {
-                                        ThreadPool.QueueUserWorkItem(__ =>
+                                        SetThreadDpiAwarenessContext(previousDpi);
+                                    }
+                                    int rowRight = s_sidebarRight > 40 ? s_sidebarRight : 215;
+                                    if (clientPt.x >= 16 && clientPt.x <= rowRight && clientPt.y >= 134 && clientPt.y <= 168)
+                                    {
+                                        IntPtr hMenu = CreatePopupMenu();
+                                        AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
+                                        SetForegroundWindow(s_mainHwnd);
+                                        int cmd = TrackPopupMenuEx(hMenu, 0x0100 | 0x0002, hs.pt.x, hs.pt.y, s_mainHwnd, IntPtr.Zero);
+                                        DestroyMenu(hMenu);
+
+                                        if (cmd == 101)
                                         {
-                                            RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                        });
-                                        return (IntPtr)1; // Consume event
+                                            ThreadPool.QueueUserWorkItem(__ =>
+                                            {
+                                                RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                            });
+                                            return (IntPtr)1; // Consume event
+                                        }
+                                    }
+                                }
+                                else if (wp == WM_LBUTTONDOWN || wp == WM_LBUTTONUP)
+                                {
+                                    MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                                    POINT clientPt = hs.pt;
+
+                                    IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+                                    ScreenToClient(s_mainHwnd, ref clientPt);
+                                    RECT mainRc;
+                                    GetClientRect(s_mainHwnd, out mainRc);
+                                    if (previousDpi != IntPtr.Zero)
+                                    {
+                                        SetThreadDpiAwarenessContext(previousDpi);
+                                    }
+
+                                    int mainWidth = mainRc.Right - mainRc.Left;
+                                    float scale = GetWindowDpiScale(s_mainHwnd);
+
+                                    // Toolbar buttons: [Notifications] [Import Data] [Device] [Settings] (Avatar)
+                                    // Measured at 125% DPI: mainWidth=1024, Import Data fromRight is 219..314, y in 20..56
+                                    // Normalized to 100% DPI (96 dpi): fromRight is ~170..265, y in ~12..58
+                                    int fromRight = mainWidth - clientPt.x;
+                                    int minFromRight = (int)(170 * scale);
+                                    int maxFromRight = (int)(265 * scale);
+                                    int minY = (int)(12 * scale);
+                                    int maxY = (int)(58 * scale);
+
+                                    if (fromRight >= minFromRight && fromRight <= maxFromRight && clientPt.y >= minY && clientPt.y <= maxY)
+                                    {
+                                        s_lastImportBtnClickTime = DateTime.UtcNow;
+                                        LogInterceptor(appDir, string.Format("Import Data toolbar button clicked: pt=({0},{1}), fromRight={2}, scale={3:F2}", clientPt.x, clientPt.y, fromRight, scale));
                                     }
                                 }
                             }
@@ -688,6 +728,33 @@ namespace AI_ECG_Portable
             catch {}
         }
 
+        private static float GetWindowDpiScale(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return 1.0f;
+            IntPtr prevDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+            try
+            {
+                IntPtr hdc = GetDC(hwnd);
+                if (hdc != IntPtr.Zero)
+                {
+                    int dpi = GetDeviceCaps(hdc, 88); // LOGPIXELSX = 88
+                    ReleaseDC(hwnd, hdc);
+                    if (dpi > 0)
+                    {
+                        return (float)dpi / 96.0f;
+                    }
+                }
+            }
+            finally
+            {
+                if (prevDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(prevDpi);
+                }
+            }
+            return 1.0f;
+        }
+
         private static bool GetWindowRectDpiAware(IntPtr hwnd, out RECT r)
         {
             IntPtr prevDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
@@ -704,6 +771,45 @@ namespace AI_ECG_Portable
             }
         }
 
+        private static bool IsExpectedDownloadDialogSize(int w, int h, float scale)
+        {
+            if (Math.Abs(scale - 1.25f) < 0.1f)
+            {
+                if (Math.Abs(w - 484) <= 12 && (Math.Abs(h - 335) <= 12 || Math.Abs(h - 341) <= 12))
+                {
+                    return true;
+                }
+            }
+
+            int expW = (int)Math.Round(387f * scale);
+            int expH = (int)Math.Round(273f * scale);
+            if (Math.Abs(w - expW) <= 12 && Math.Abs(h - expH) <= 12)
+            {
+                return true;
+            }
+
+            // Fallback across standard DPI scales if scale is neutral
+            int[][] downloadSizes = new int[][]
+            {
+                new int[] { 387, 273 }, // 100%
+                new int[] { 484, 335 }, // 125% measured
+                new int[] { 484, 341 }, // 125% nominal
+                new int[] { 581, 410 }, // 150%
+                new int[] { 677, 478 }, // 175%
+                new int[] { 774, 546 }, // 200%
+            };
+
+            for (int i = 0; i < downloadSizes.Length; i++)
+            {
+                if (Math.Abs(w - downloadSizes[i][0]) <= 12 && Math.Abs(h - downloadSizes[i][1]) <= 12)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool TryInterceptDownloadDialog(IntPtr hwnd, string title, int w, int h, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
         {
             if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
@@ -711,82 +817,101 @@ namespace AI_ECG_Portable
                 return false;
             }
 
-            // Match conditions:
-            // - title contains Download or Import
-            // - download-dialog sizes at 100%, 125%, 150%, 175%, and 200% (tolerance ±56 px), plus measured screenshot dialog (484x335)
-            // - small no-device popups (265x142 and 265x157)
+            float scale = GetWindowDpiScale(s_mainHwnd != IntPtr.Zero ? s_mainHwnd : hwnd);
+
+            // 1. Explicitly ignore known non-download Qt popups:
+            // - Simple alerts/confirmations (Delete record popup, messageboxes): height < 200 or width < 340
+            if (h < 200 || w < 340)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring small popup/messagebox HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Device Info Dialog (nominal 443x310 at 100%, 554x388 at 125%)
+            int devW = (int)Math.Round(443f * scale);
+            int devH = (int)Math.Round(310f * scale);
+            if (Math.Abs(w - devW) <= 20 && Math.Abs(h - devH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Device dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Settings Dialog (nominal 354x230 at 100%, 443x288 at 125%)
+            int setW = (int)Math.Round(354f * scale);
+            int setH = (int)Math.Round(230f * scale);
+            if (Math.Abs(w - setW) <= 20 && Math.Abs(h - setH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Settings dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Notifications Dialog (nominal 320x262 at 100%, 400x327 at 125%)
+            int notW = (int)Math.Round(320f * scale);
+            int notH = (int)Math.Round(262f * scale);
+            if (Math.Abs(w - notW) <= 20 && Math.Abs(h - notH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Notifications dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // 2. Title matching (if present)
             bool isDownloadDialog =
                 title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
 
+            // 3. Strict Download Dialog Size Matching:
             if (!isDownloadDialog)
             {
-                int[][] downloadSizes = new int[][]
-                {
-                    new int[] { 387, 273 }, // 100%
-                    new int[] { 484, 341 }, // 125%
-                    new int[] { 484, 335 }, // Screenshot dialog (125% measured)
-                    new int[] { 581, 410 }, // 150%
-                    new int[] { 677, 478 }, // 175%
-                    new int[] { 774, 546 }, // 200%
-                };
-
-                for (int i = 0; i < downloadSizes.Length; i++)
-                {
-                    if (Math.Abs(w - downloadSizes[i][0]) <= 56 && Math.Abs(h - downloadSizes[i][1]) <= 56)
-                    {
-                        isDownloadDialog = true;
-                        break;
-                    }
-                }
+                isDownloadDialog = IsExpectedDownloadDialogSize(w, h, scale);
             }
 
             if (!isDownloadDialog)
             {
-                if (Math.Abs(w - 265) <= 40 && (Math.Abs(h - 142) <= 40 || Math.Abs(h - 157) <= 40))
-                {
-                    isDownloadDialog = true;
-                }
+                return false;
             }
 
-            if (isDownloadDialog)
+            // 4. Guard against re-entrancy and execute modal
+            lock (s_importLock)
             {
-                lock (s_importLock)
+                if (s_isImportModalRunning)
                 {
-                    if (s_isImportModalRunning)
-                    {
-                        return true;
-                    }
-                    s_isImportModalRunning = true;
+                    return true;
                 }
-
-                LogInterceptor(appDir, string.Format("Matched Download dialog {0} (Title='{1}', Size={2}x{3})! Hiding and running modal...", hwnd, title, w, h));
-
-                ShowWindow(hwnd, SW_HIDE);
-
-                ThreadPool.QueueUserWorkItem(__ =>
-                {
-                    try
-                    {
-                        RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                    }
-                    finally
-                    {
-                        lock (s_importLock)
-                        {
-                            s_isImportModalRunning = false;
-                        }
-                    }
-                });
-                return true;
+                s_isImportModalRunning = true;
             }
 
-            return false;
+            s_lastImportBtnClickTime = DateTime.MinValue;
+
+            LogInterceptor(appDir, string.Format("Matched Download dialog {0} (Title='{1}', Size={2}x{3})! Hiding and running modal...", hwnd, title, w, h));
+
+            ShowWindow(hwnd, SW_HIDE);
+
+            ThreadPool.QueueUserWorkItem(__ =>
+            {
+                try
+                {
+                    RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                }
+                finally
+                {
+                    lock (s_importLock)
+                    {
+                        s_isImportModalRunning = false;
+                    }
+                }
+            });
+            return true;
         }
 
         private static void ScanForDownloadDialog(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
         {
             if (s_isImportModalRunning || targetProcess == null || targetProcess.HasExited)
+            {
+                return;
+            }
+
+            // Only perform periodic polling if Import Data was clicked recently (within 3 seconds)
+            if ((DateTime.UtcNow - s_lastImportBtnClickTime).TotalSeconds > 3.0)
             {
                 return;
             }
