@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QListView, QMai
                                QVBoxLayout, QWidget)
 
 from ..db.repository import Repository
+from ..storage import trash_patient_files
 from . import i18n
 from .dialogs import DevicesDialog, PatientDialog
 from .i18n import tr
@@ -22,6 +23,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.repo, self.data_dir, self.db_file = repo, Path(data_dir), Path(db_file)
         self.vendor_default = vendor_default
+        self.last_trash = None
         self.setWindowTitle(tr("app_title"))
         self.resize(1280, 800)
 
@@ -47,7 +49,7 @@ class MainWindow(QMainWindow):
         self.rec_view.setSelectionMode(QTableView.SingleSelection)
         self.rec_view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.rec_view.verticalHeader().hide()
-        self.viewer = EcgViewer(repo.settings.get("mv_height_scale", 1.0) or 1.0)
+        self.viewer = EcgViewer(repo.settings.get("mv_height_scale", 1.0) or 1.0, settings=repo.settings)
         self.report = QLabel(tr("report_placeholder"))
         self.report.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.report.setWordWrap(True)
@@ -152,7 +154,8 @@ class MainWindow(QMainWindow):
         ok = confirm(p) if confirm else QMessageBox.question(
             self, tr("delete"), tr("confirm_delete_patient", p.name)) == QMessageBox.Yes
         if ok:
-            self.repo.patients.delete(p.id)  # recording files on disk are kept
+            self.last_trash = trash_patient_files(self.repo, self.data_dir, p)
+            self.repo.patients.delete(p.id)
             self._reload_patients()
 
     # dialogs --------------------------------------------------------------
