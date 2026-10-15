@@ -7,13 +7,14 @@ name = "ecg_app"
 version = "0.1.0"
 description = "Pure-Python ER1 ECG app (rewrite of the Viatom AI-ECG portable app)"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy>=1.26", "PySide6>=6.6", "pyqtgraph>=0.13.3"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-qt>=4.4"]
 
 [project.scripts]
 ecg-vendor-import = "ecg_app.importers.vendor_import:main"
+ecg-app = "ecg_app.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["ecg_app*"]
