@@ -30,3 +30,27 @@
 [2026-10-07 01:12:59.661] RunAddUserModal exitCode: -1
 [2026-10-07 06:51:50.739] RunAddUserModal launching: "C:\Users\user\Desktop\AI-ECG-Analysis-Portable-v1.2.0\manage_users.py" --add-gui
 [2026-10-07 06:51:55.695] RunAddUserModal exitCode: 0
+[2026-10-15 06:25:22.487] Unified interceptor started for PID 30940
+[2026-10-15 06:25:23.029] EVENT_SHOW main window 918502
+[2026-10-15 06:25:23.179] Child + Add User button created successfully at (-1, 106) on 918502
+[2026-10-15 06:25:25.422] Qt popup: HWND=1838584, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:25.424] Matched Download dialog 1838584 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:25.444] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:25:32.943] RunImportModal finished with exitCode 0
+[2026-10-15 06:25:41.651] Qt popup: HWND=1837540, Title='ECG Data Management', Size=331x177, Owner=918502
+[2026-10-15 06:25:41.815] Re-check Qt popup: HWND=1837540, Title='ECG Data Management', Size=331x177
+[2026-10-15 06:25:45.328] Qt popup: HWND=1903076, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:45.329] Matched Download dialog 1903076 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:45.343] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:25:51.569] RunImportModal finished with exitCode 1
+[2026-10-15 06:25:58.943] Qt popup: HWND=2296292, Title='ECG Data Management', Size=484x335, Owner=918502
+[2026-10-15 06:25:58.943] Matched Download dialog 2296292 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:25:58.959] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:46:07.514] Unified interceptor started for PID 33672
+[2026-10-15 06:46:08.620] EVENT_SHOW main window 3279576
+[2026-10-15 06:46:08.773] Child + Add User button created successfully at (-1, 106) on 3279576
+[2026-10-15 06:46:12.285] Qt popup: HWND=2296182, Title='ECG Data Management', Size=484x335, Owner=3279576
+[2026-10-15 06:46:12.287] Matched Download dialog 2296182 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
+[2026-10-15 06:46:12.309] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
+[2026-10-15 06:46:48.686] RunImportModal finished with exitCode 0
+[2026-10-15 07:54:37.473] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe

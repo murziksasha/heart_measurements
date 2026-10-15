@@ -1,0 +1,79 @@
+{
+    "code": 200,
+    "data": {
+        "abnormalBeatCount": "0",
+        "abnormalBeatPercent": 0,
+        "afBeatPercent": 0,
+        "allEventList": [
+            {
+                "endPos": "472093",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-05 23:38:32",
+                "startPos": "470093"
+            },
+            {
+                "endPos": "5092326",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-06 04:46:33",
+                "startPos": "5090326"
+            }
+        ],
+        "analysisReport": "https://elasticbeanstalk-us-west-2-697648770036.s3.us-west-2.amazonaws.com/viatomstoragepro/data/file/2026/1008/3abc7cbd-e47d-4731-9530-045a7eec2b8e.pdf",
+        "asystoleRRPeriodCount": 0,
+        "atrialBeatCount": 0,
+        "atrialBigeminyCount": 0,
+        "atrialPermatureBeatCount": 0,
+        "atrialTachycardiaCount": 0,
+        "atrialTrigeminyCount": 0,
+        "averageHeartRate": 60,
+        "beatCount": "32803",
+        "coupleAtrialPermatureCount": 0,
+        "coupleVentricularPermatureCount": 0,
+        "dataEndTime": "2026-10-06 08:06:42",
+        "dataStartTime": "2026-10-05 23:07:12",
+        "diagnoseList": [
+            {
+                "code": "101",
+                "diagnoseInfo": "Normal sinus rhythm"
+            }
+        ],
+        "eventList": [
+            {
+                "endPos": "472093",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-05 23:38:32",
+                "startPos": "470093"
+            },
+            {
+                "endPos": "5092326",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-06 04:46:33",
+                "startPos": "5090326"
+            }
+        ],
+        "longRRPeriodCount": 0,
+        "longestAtrialTachycardiaDuration": 0,
+        "longestAtrialTachycardiaOccurTime": "",
+        "longestVentricularTachycardiaDuration": 0,
+        "longestVentricularTachycardiaOccurTime": "",
+        "maxHeartRate": 100,
+        "maxHeartRateTime": "2026-10-05 23:38:32",
+        "maxLongAsystoleTime": "",
+        "maxLongRRPeriod": 0,
+        "minHeartRate": 43,
+        "minHeartRateTime": "2026-10-06 04:46:33",
+        "reportTime": "2026-10-09 03:49:56",
+        "totalDuration": 32370,
+        "validDuration": 32370,
+        "ventricularBeatCount": 0,
+        "ventricularBigeminyCount": 0,
+        "ventricularPermatureBeatCount": 0,
+        "ventricularTachycardiaCount": 0,
+        "ventricularTrigeminyCount": 0
+    },
+    "msg": "success"
+}

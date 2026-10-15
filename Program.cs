@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -243,6 +244,9 @@ namespace AI_ECG_Portable
         private static extern uint SetTextColor(IntPtr hdc, uint crColor);
 
         [DllImport("gdi32.dll")]
+        private static extern int GetDeviceCaps(IntPtr hdc, int nIndex);
+
+        [DllImport("gdi32.dll")]
         private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -313,10 +317,13 @@ namespace AI_ECG_Portable
         #endregion
 
         private static IntPtr s_mainHwnd = IntPtr.Zero;
+        private static volatile bool s_mainWindowSeen = false;
         private static IntPtr s_allowedDeviceHwnd = IntPtr.Zero;
         private static bool s_isImportModalRunning = false;
+        private static readonly object s_importLock = new object();
         private static bool s_isAddUserModalRunning = false;
         private static bool s_restartRequested = false;
+        private static DateTime s_lastImportBtnClickTime = DateTime.MinValue;
 
         private static IntPtr s_btnAddHwnd = IntPtr.Zero;
         private static int s_btnX = -1;
@@ -375,6 +382,8 @@ namespace AI_ECG_Portable
                         MessageBoxIcon.Error);
                     return;
                 }
+
+                string appliedUpdateBackupPath = CheckAndApplyVendorUpdate(appDir, workingDir, exePath, portableDataDir);
 
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string hostEcgBrowserDir = Path.Combine(localAppData, "ECG Browser");
@@ -447,17 +456,114 @@ namespace AI_ECG_Portable
                             StopUnifiedInterceptor(interceptorThread);
                         }
 
-                        if (Directory.Exists(hostEcgBrowserDir))
+                        if (!string.IsNullOrEmpty(appliedUpdateBackupPath) && !s_mainWindowSeen)
                         {
-                            CopyDirectory(hostEcgBrowserDir, portableDataDir);
-                        }
+                            LogInterceptor(appDir, "Updated process exited without main window being seen. Rolling back...");
 
-                        // Seamless reload if user creation requested immediate application refresh
-                        if (s_restartRequested)
+                            string appFailedDir = Path.Combine(appliedUpdateBackupPath, "App-failed");
+                            try
+                            {
+                                if (Directory.Exists(workingDir))
+                                {
+                                    Directory.Move(workingDir, appFailedDir);
+                                    LogInterceptor(appDir, "Moved failed App to " + appFailedDir);
+                                }
+                            }
+                            catch (Exception exMoveFailed)
+                            {
+                                LogInterceptor(appDir, "Failed to move failed App to App-failed: " + exMoveFailed.Message);
+                            }
+
+                            string appBackupDir = Path.Combine(appliedUpdateBackupPath, "App");
+                            try
+                            {
+                                LogInterceptor(appDir, "Copying restored App from " + appBackupDir);
+                                CopyDirectory(appBackupDir, workingDir);
+                            }
+                            catch (Exception exCopyRestored)
+                            {
+                                LogInterceptor(appDir, "Failed to copy backup App to live App: " + exCopyRestored.Message);
+                            }
+
+                            MessageBox.Show(
+                                "The updated application exited without showing its main window.\n" +
+                                "The portable App folder has been rolled back to the previous version.\n\n" +
+                                "Backup preserved at:\n" + appliedUpdateBackupPath,
+                                "AI-ECG Portable - Update Rolled Back",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning);
+
+                            try
+                            {
+                                DeleteDirectorySafely(hostEcgBrowserDir);
+                                if (Directory.Exists(portableDataDir))
+                                {
+                                    CopyDirectory(portableDataDir, hostEcgBrowserDir);
+                                }
+                                else
+                                {
+                                    Directory.CreateDirectory(hostEcgBrowserDir);
+                                    Directory.CreateDirectory(Path.Combine(hostEcgBrowserDir, "DATA"));
+                                    Directory.CreateDirectory(Path.Combine(hostEcgBrowserDir, "DATA", "userfiles"));
+                                    Directory.CreateDirectory(Path.Combine(hostEcgBrowserDir, "log"));
+                                    Directory.CreateDirectory(Path.Combine(hostEcgBrowserDir, "dump"));
+                                }
+
+                                if (File.Exists(hostConfigFile))
+                                {
+                                    UpdateConfigDataDir(hostConfigFile, Path.Combine(hostEcgBrowserDir, "DATA").Replace('\\', '/'));
+                                }
+                            }
+                            catch (Exception exRebuild)
+                            {
+                                LogInterceptor(appDir, "Failed to rebuild host profile: " + exRebuild.Message);
+                            }
+
+                            s_mainWindowSeen = false;
+                            s_mainHwnd = IntPtr.Zero;
+                            s_btnAddHwnd = IntPtr.Zero;
+                            s_btnX = -1;
+                            s_btnW = -1;
+                            s_sidebarRight = 215;
+                            s_btnText = "+ Add User";
+
+                            try
+                            {
+                                using (Process restoredProcess = Process.Start(psi))
+                                {
+                                    Thread interceptorThread2 = StartUnifiedInterceptor(restoredProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                    restoredProcess.WaitForExit();
+                                    StopUnifiedInterceptor(interceptorThread2);
+                                }
+
+                                if (s_mainWindowSeen && Directory.Exists(hostEcgBrowserDir))
+                                {
+                                    CopyDirectory(hostEcgBrowserDir, portableDataDir);
+                                }
+                            }
+                            catch (Exception exRestored)
+                            {
+                                LogInterceptor(appDir, "Error running restored application: " + exRestored.Message);
+                            }
+
+                            appliedUpdateBackupPath = null;
+                        }
+                        else
                         {
-                            s_restartRequested = false;
-                            shouldRun = true;
-                            Thread.Sleep(300);
+                            appliedUpdateBackupPath = null;
+
+                            if (Directory.Exists(hostEcgBrowserDir))
+                            {
+                                CopyDirectory(hostEcgBrowserDir, portableDataDir);
+                            }
+
+                            // Seamless reload if user creation requested immediate application refresh
+                            if (s_restartRequested)
+                            {
+                                s_restartRequested = false;
+                                shouldRun = true;
+                                Thread.Sleep(300);
+                            }
                         }
                     }
                 }
@@ -515,6 +621,7 @@ namespace AI_ECG_Portable
                         s_mainHwnd = FindMainWindow(targetProcess.Id);
                         if (s_mainHwnd != IntPtr.Zero)
                         {
+                            s_mainWindowSeen = true;
                             LogInterceptor(appDir, string.Format("Found MainWindow HWND: {0}", s_mainHwnd));
                             // Create the button on the interceptor thread. Its window procedure
                             // has to run there, or a later resize deadlocks SetWindowPos.
@@ -537,25 +644,19 @@ namespace AI_ECG_Portable
 
                         if (cls.Contains("Qt"))
                         {
-                            StringBuilder sbTitle = new StringBuilder(256);
-                            GetWindowText(hwnd, sbTitle, 256);
-                            string title = sbTitle.ToString();
-
                             IntPtr owner = GetWindow(hwnd, GW_OWNER);
                             RECT r;
-                            GetWindowRect(hwnd, out r);
+                            GetWindowRectDpiAware(hwnd, out r);
                             int w = r.Right - r.Left;
                             int h = r.Bottom - r.Top;
 
                             // Update main window reference if detected here
-                            if (owner == IntPtr.Zero && w >= 600 && h >= 400)
+                            if (s_mainHwnd == IntPtr.Zero && owner == IntPtr.Zero && w >= 600 && h >= 400)
                             {
-                                if (s_mainHwnd == IntPtr.Zero)
-                                {
-                                    s_mainHwnd = hwnd;
-                                    LogInterceptor(appDir, string.Format("EVENT_SHOW main window {0}", hwnd));
-                                    AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                }
+                                s_mainHwnd = hwnd;
+                                s_mainWindowSeen = true;
+                                LogInterceptor(appDir, string.Format("EVENT_SHOW main window {0}", hwnd));
+                                AttachSidebarAddButton(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
                             }
                             else if (hwnd != s_mainHwnd)
                             {
@@ -564,28 +665,19 @@ namespace AI_ECG_Portable
                                     return;
                                 }
 
-                                // DeviceDownloadDialog check
-                                bool isDownloadDialog = (w >= 370 && w <= 405 && h >= 255 && h <= 290) ||
-                                                        title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                        title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
+                                StringBuilder sbTitle = new StringBuilder(256);
+                                GetWindowText(hwnd, sbTitle, 256);
+                                string title = sbTitle.ToString();
 
-                                if (isDownloadDialog && !s_isImportModalRunning)
+                                LogInterceptor(appDir, string.Format("Qt popup: HWND={0}, Title='{1}', Size={2}x{3}, Owner={4}", hwnd, title, w, h, owner));
+
+                                bool matched = TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                if (!matched)
                                 {
-                                    s_isImportModalRunning = true;
-                                    LogInterceptor(appDir, string.Format("Matched Download dialog {0}! Hiding and running modal...", hwnd));
-
-                                    ShowWindow(hwnd, SW_HIDE);
-
-                                    ThreadPool.QueueUserWorkItem(__ =>
+                                    ThreadPool.QueueUserWorkItem(_ =>
                                     {
-                                        try
-                                        {
-                                            RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                        }
-                                        finally
-                                        {
-                                            s_isImportModalRunning = false;
-                                        }
+                                        Thread.Sleep(150);
+                                        RecheckDownloadDialog(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
                                     });
                                 }
                             }
@@ -599,43 +691,79 @@ namespace AI_ECG_Portable
                     (uint)targetProcess.Id, 0,
                     WINEVENT_OUTOFCONTEXT);
 
-                // 3. Install Mouse Hook for Right-Click on "All Users"
+                // 3. Install Mouse Hook for Right-Click on "All Users" and Left-Click on "Import Data"
                 s_mouseHookProc = (int nCode, IntPtr wParam, IntPtr lParam) =>
                 {
-                    if (nCode >= 0 && (int)wParam == WM_RBUTTONUP && !s_isAddUserModalRunning && !s_isImportModalRunning)
+                    if (nCode >= 0 && !s_isAddUserModalRunning && !s_isImportModalRunning)
                     {
                         if (s_mainHwnd != IntPtr.Zero && IsWindow(s_mainHwnd))
                         {
                             IntPtr fg = GetForegroundWindow();
                             if (fg == s_mainHwnd)
                             {
-                                MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                                POINT clientPt = hs.pt;
-
-                                // All Users row, in the Qt window's own pixels. This hook's thread
-                                // is otherwise DPI-unaware, which shifts the hit test on resize.
-                                IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
-                                ScreenToClient(s_mainHwnd, ref clientPt);
-                                if (previousDpi != IntPtr.Zero)
+                                int wp = (int)wParam;
+                                if (wp == WM_RBUTTONUP)
                                 {
-                                    SetThreadDpiAwarenessContext(previousDpi);
-                                }
-                                int rowRight = s_sidebarRight > 40 ? s_sidebarRight : 215;
-                                if (clientPt.x >= 16 && clientPt.x <= rowRight && clientPt.y >= 134 && clientPt.y <= 168)
-                                {
-                                    IntPtr hMenu = CreatePopupMenu();
-                                    AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
-                                    SetForegroundWindow(s_mainHwnd);
-                                    int cmd = TrackPopupMenuEx(hMenu, 0x0100 | 0x0002, hs.pt.x, hs.pt.y, s_mainHwnd, IntPtr.Zero);
-                                    DestroyMenu(hMenu);
+                                    MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                                    POINT clientPt = hs.pt;
 
-                                    if (cmd == 101)
+                                    // All Users row, in the Qt window's own pixels. This hook's thread
+                                    // is otherwise DPI-unaware, which shifts the hit test on resize.
+                                    IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+                                    ScreenToClient(s_mainHwnd, ref clientPt);
+                                    if (previousDpi != IntPtr.Zero)
                                     {
-                                        ThreadPool.QueueUserWorkItem(__ =>
+                                        SetThreadDpiAwarenessContext(previousDpi);
+                                    }
+                                    int rowRight = s_sidebarRight > 40 ? s_sidebarRight : 215;
+                                    if (clientPt.x >= 16 && clientPt.x <= rowRight && clientPt.y >= 134 && clientPt.y <= 168)
+                                    {
+                                        IntPtr hMenu = CreatePopupMenu();
+                                        AppendMenu(hMenu, 0, (UIntPtr)101, "+ Add User...");
+                                        SetForegroundWindow(s_mainHwnd);
+                                        int cmd = TrackPopupMenuEx(hMenu, 0x0100 | 0x0002, hs.pt.x, hs.pt.y, s_mainHwnd, IntPtr.Zero);
+                                        DestroyMenu(hMenu);
+
+                                        if (cmd == 101)
                                         {
-                                            RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
-                                        });
-                                        return (IntPtr)1; // Consume event
+                                            ThreadPool.QueueUserWorkItem(__ =>
+                                            {
+                                                RunAddUserModal(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                                            });
+                                            return (IntPtr)1; // Consume event
+                                        }
+                                    }
+                                }
+                                else if (wp == WM_LBUTTONDOWN || wp == WM_LBUTTONUP)
+                                {
+                                    MSLLHOOKSTRUCT hs = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                                    POINT clientPt = hs.pt;
+
+                                    IntPtr previousDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+                                    ScreenToClient(s_mainHwnd, ref clientPt);
+                                    RECT mainRc;
+                                    GetClientRect(s_mainHwnd, out mainRc);
+                                    if (previousDpi != IntPtr.Zero)
+                                    {
+                                        SetThreadDpiAwarenessContext(previousDpi);
+                                    }
+
+                                    int mainWidth = mainRc.Right - mainRc.Left;
+                                    float scale = GetWindowDpiScale(s_mainHwnd);
+
+                                    // Toolbar buttons: [Notifications] [Import Data] [Device] [Settings] (Avatar)
+                                    // Measured at 125% DPI: mainWidth=1024, Import Data fromRight is 219..314, y in 20..56
+                                    // Normalized to 100% DPI (96 dpi): fromRight is ~170..265, y in ~12..58
+                                    int fromRight = mainWidth - clientPt.x;
+                                    int minFromRight = (int)(170 * scale);
+                                    int maxFromRight = (int)(265 * scale);
+                                    int minY = (int)(12 * scale);
+                                    int maxY = (int)(58 * scale);
+
+                                    if (fromRight >= minFromRight && fromRight <= maxFromRight && clientPt.y >= minY && clientPt.y <= maxY)
+                                    {
+                                        s_lastImportBtnClickTime = DateTime.UtcNow;
+                                        LogInterceptor(appDir, string.Format("Import Data toolbar button clicked: pt=({0},{1}), fromRight={2}, scale={3:F2}", clientPt.x, clientPt.y, fromRight, scale));
                                     }
                                 }
                             }
@@ -659,6 +787,11 @@ namespace AI_ECG_Portable
                     if (msg.message == WM_TIMER)
                     {
                         PlaceAddUserButton();
+
+                        if (!s_isImportModalRunning && s_mainHwnd != IntPtr.Zero)
+                        {
+                            ScanForDownloadDialog(targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                        }
                     }
                     TranslateMessage(ref msg);
                     DispatchMessage(ref msg);
@@ -698,6 +831,271 @@ namespace AI_ECG_Portable
             catch {}
         }
 
+        private static float GetWindowDpiScale(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return 1.0f;
+            IntPtr prevDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+            try
+            {
+                IntPtr hdc = GetDC(hwnd);
+                if (hdc != IntPtr.Zero)
+                {
+                    int dpi = GetDeviceCaps(hdc, 88); // LOGPIXELSX = 88
+                    ReleaseDC(hwnd, hdc);
+                    if (dpi > 0)
+                    {
+                        return (float)dpi / 96.0f;
+                    }
+                }
+            }
+            finally
+            {
+                if (prevDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(prevDpi);
+                }
+            }
+            return 1.0f;
+        }
+
+        private static bool GetWindowRectDpiAware(IntPtr hwnd, out RECT r)
+        {
+            IntPtr prevDpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+            try
+            {
+                return GetWindowRect(hwnd, out r);
+            }
+            finally
+            {
+                if (prevDpi != IntPtr.Zero)
+                {
+                    SetThreadDpiAwarenessContext(prevDpi);
+                }
+            }
+        }
+
+        private static bool IsExpectedDownloadDialogSize(int w, int h, float scale)
+        {
+            if (Math.Abs(scale - 1.25f) < 0.1f)
+            {
+                if (Math.Abs(w - 484) <= 12 && (Math.Abs(h - 335) <= 12 || Math.Abs(h - 341) <= 12))
+                {
+                    return true;
+                }
+            }
+
+            int expW = (int)Math.Round(387f * scale);
+            int expH = (int)Math.Round(273f * scale);
+            if (Math.Abs(w - expW) <= 12 && Math.Abs(h - expH) <= 12)
+            {
+                return true;
+            }
+
+            // Fallback across standard DPI scales if scale is neutral
+            int[][] downloadSizes = new int[][]
+            {
+                new int[] { 387, 273 }, // 100%
+                new int[] { 484, 335 }, // 125% measured
+                new int[] { 484, 341 }, // 125% nominal
+                new int[] { 581, 410 }, // 150%
+                new int[] { 677, 478 }, // 175%
+                new int[] { 774, 546 }, // 200%
+            };
+
+            for (int i = 0; i < downloadSizes.Length; i++)
+            {
+                if (Math.Abs(w - downloadSizes[i][0]) <= 12 && Math.Abs(h - downloadSizes[i][1]) <= 12)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryInterceptDownloadDialog(IntPtr hwnd, string title, int w, int h, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+            {
+                return false;
+            }
+
+            float scale = GetWindowDpiScale(s_mainHwnd != IntPtr.Zero ? s_mainHwnd : hwnd);
+
+            // 1. Explicitly ignore known non-download Qt popups:
+            // - Simple alerts/confirmations (Delete record popup, messageboxes): height < 200 or width < 340
+            if (h < 200 || w < 340)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring small popup/messagebox HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Device Info Dialog (nominal 443x310 at 100%, 554x388 at 125%)
+            int devW = (int)Math.Round(443f * scale);
+            int devH = (int)Math.Round(310f * scale);
+            if (Math.Abs(w - devW) <= 20 && Math.Abs(h - devH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Device dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Settings Dialog (nominal 354x230 at 100%, 443x288 at 125%)
+            int setW = (int)Math.Round(354f * scale);
+            int setH = (int)Math.Round(230f * scale);
+            if (Math.Abs(w - setW) <= 20 && Math.Abs(h - setH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Settings dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // - Notifications Dialog (nominal 320x262 at 100%, 400x327 at 125%)
+            int notW = (int)Math.Round(320f * scale);
+            int notH = (int)Math.Round(262f * scale);
+            if (Math.Abs(w - notW) <= 20 && Math.Abs(h - notH) <= 20)
+            {
+                LogInterceptor(appDir, string.Format("Ignoring Notifications dialog HWND={0}, Size={1}x{2}", hwnd, w, h));
+                return false;
+            }
+
+            // 2. Title matching (if present)
+            bool isDownloadDialog =
+                title.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                title.IndexOf("Import", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            // 3. Strict Download Dialog Size Matching:
+            if (!isDownloadDialog)
+            {
+                isDownloadDialog = IsExpectedDownloadDialogSize(w, h, scale);
+            }
+
+            if (!isDownloadDialog)
+            {
+                return false;
+            }
+
+            // 4. Guard against re-entrancy and execute modal
+            lock (s_importLock)
+            {
+                if (s_isImportModalRunning)
+                {
+                    return true;
+                }
+                s_isImportModalRunning = true;
+            }
+
+            s_lastImportBtnClickTime = DateTime.MinValue;
+
+            LogInterceptor(appDir, string.Format("Matched Download dialog {0} (Title='{1}', Size={2}x{3})! Hiding and running modal...", hwnd, title, w, h));
+
+            ShowWindow(hwnd, SW_HIDE);
+
+            ThreadPool.QueueUserWorkItem(__ =>
+            {
+                try
+                {
+                    RunImportModal(hwnd, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+                }
+                finally
+                {
+                    lock (s_importLock)
+                    {
+                        s_isImportModalRunning = false;
+                    }
+                }
+            });
+            return true;
+        }
+
+        private static void ScanForDownloadDialog(Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (s_isImportModalRunning || targetProcess == null || targetProcess.HasExited)
+            {
+                return;
+            }
+
+            // Only perform periodic polling if Import Data was clicked recently (within 3 seconds)
+            if ((DateTime.UtcNow - s_lastImportBtnClickTime).TotalSeconds > 3.0)
+            {
+                return;
+            }
+
+            EnumWindows((hwnd, lParam) =>
+            {
+                if (s_isImportModalRunning)
+                {
+                    return false;
+                }
+
+                if (hwnd == IntPtr.Zero || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+                {
+                    return true;
+                }
+
+                uint pid;
+                GetWindowThreadProcessId(hwnd, out pid);
+                if (pid != (uint)targetProcess.Id)
+                {
+                    return true;
+                }
+
+                if (!IsWindowVisible(hwnd))
+                {
+                    return true;
+                }
+
+                StringBuilder sbClass = new StringBuilder(256);
+                GetClassName(hwnd, sbClass, 256);
+                if (!sbClass.ToString().Contains("Qt"))
+                {
+                    return true;
+                }
+
+                StringBuilder sbTitle = new StringBuilder(256);
+                GetWindowText(hwnd, sbTitle, 256);
+                string title = sbTitle.ToString();
+
+                RECT r;
+                GetWindowRectDpiAware(hwnd, out r);
+                int w = r.Right - r.Left;
+                int h = r.Bottom - r.Top;
+
+                if (TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir))
+                {
+                    return false;
+                }
+
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private static void RecheckDownloadDialog(IntPtr hwnd, Process targetProcess, string appDir, string hostEcgBrowserDir, string portableDataDir)
+        {
+            if (s_isImportModalRunning || hwnd == IntPtr.Zero || !IsWindow(hwnd) || hwnd == s_mainHwnd || hwnd == s_allowedDeviceHwnd)
+            {
+                return;
+            }
+
+            StringBuilder sbClass = new StringBuilder(256);
+            GetClassName(hwnd, sbClass, 256);
+            if (!sbClass.ToString().Contains("Qt"))
+            {
+                return;
+            }
+
+            StringBuilder sbTitle = new StringBuilder(256);
+            GetWindowText(hwnd, sbTitle, 256);
+            string title = sbTitle.ToString();
+
+            RECT r;
+            GetWindowRectDpiAware(hwnd, out r);
+            int w = r.Right - r.Left;
+            int h = r.Bottom - r.Top;
+
+            LogInterceptor(appDir, string.Format("Re-check Qt popup: HWND={0}, Title='{1}', Size={2}x{3}", hwnd, title, w, h));
+
+            TryInterceptDownloadDialog(hwnd, title, w, h, targetProcess, appDir, hostEcgBrowserDir, portableDataDir);
+        }
+
         private static IntPtr FindMainWindow(int targetPid)
         {
             IntPtr found = IntPtr.Zero;
@@ -713,7 +1111,7 @@ namespace AI_ECG_Portable
                     {
                         IntPtr owner = GetWindow(hwnd, GW_OWNER);
                         RECT r;
-                        GetWindowRect(hwnd, out r);
+                        GetWindowRectDpiAware(hwnd, out r);
                         int w = r.Right - r.Left;
                         int h = r.Bottom - r.Top;
                         if (owner == IntPtr.Zero && w >= 600 && h >= 400 && IsWindowVisible(hwnd))
@@ -1147,7 +1545,7 @@ namespace AI_ECG_Portable
 
             LogInterceptor(appDir, string.Format("RunImportModal starting: exe={0}, args={1}", pythonExe, psi.Arguments));
 
-            int exitCode = 0;
+            int exitCode = -1;
             try
             {
                 AllowSetForegroundWindow(ASFW_ANY);
@@ -1160,14 +1558,14 @@ namespace AI_ECG_Portable
             catch (Exception ex)
             {
                 LogInterceptor(appDir, string.Format("RunImportModal exception: {0}", ex.Message));
-                exitCode = 1;
+                exitCode = -1;
             }
 
             LogInterceptor(appDir, string.Format("RunImportModal finished with exitCode {0}", exitCode));
 
             if (exitCode == 1)
             {
-                // "From Device" -> unhide native dialog
+                // "Original device import" -> unhide native dialog
                 s_allowedDeviceHwnd = dialogHwnd;
                 ShowWindow(dialogHwnd, SW_SHOW);
                 SetForegroundWindow(dialogHwnd);
@@ -1287,5 +1685,370 @@ namespace AI_ECG_Portable
                 }
             }
         }
+
+        #region Safe Portable Vendor Update
+
+        private enum VendorUpdateChoice
+        {
+            Yes,
+            NotNow,
+            DontAsk
+        }
+
+        private static VendorUpdateChoice ShowVendorUpdateDialog()
+        {
+            using (Form form = new Form())
+            {
+                form.Text = "AI-ECG Portable";
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.StartPosition = FormStartPosition.CenterScreen;
+                form.ShowInTaskbar = true;
+                form.ClientSize = new Size(460, 160);
+                form.Font = SystemFonts.MessageBoxFont;
+
+                Label label = new Label();
+                label.Text = "A newer ECG Data Management is installed on this computer. Update the portable copy?\n\nPatients and recordings stay in Data. A full backup is saved under _backup first.";
+                label.Location = new Point(20, 20);
+                label.Size = new Size(420, 75);
+                form.Controls.Add(label);
+
+                Button btnYes = new Button();
+                btnYes.Text = "Yes";
+                btnYes.Location = new Point(35, 110);
+                btnYes.Size = new Size(85, 30);
+                btnYes.DialogResult = DialogResult.Yes;
+                form.Controls.Add(btnYes);
+
+                Button btnNotNow = new Button();
+                btnNotNow.Text = "Not now";
+                btnNotNow.Location = new Point(130, 110);
+                btnNotNow.Size = new Size(95, 30);
+                btnNotNow.DialogResult = DialogResult.No;
+                form.Controls.Add(btnNotNow);
+
+                Button btnDontAsk = new Button();
+                btnDontAsk.Text = "Don't ask for this build";
+                btnDontAsk.Location = new Point(235, 110);
+                btnDontAsk.Size = new Size(185, 30);
+                btnDontAsk.DialogResult = DialogResult.Ignore;
+                form.Controls.Add(btnDontAsk);
+
+                form.AcceptButton = btnYes;
+                form.CancelButton = btnNotNow;
+
+                DialogResult dr = form.ShowDialog();
+                if (dr == DialogResult.Yes)
+                {
+                    return VendorUpdateChoice.Yes;
+                }
+                if (dr == DialogResult.Ignore)
+                {
+                    return VendorUpdateChoice.DontAsk;
+                }
+                return VendorUpdateChoice.NotNow;
+            }
+        }
+
+        private static string CheckAndApplyVendorUpdate(string appDir, string workingDir, string exePath, string portableDataDir)
+        {
+            const string installedDir = @"C:\Program Files (x86)\ECG Data Management";
+            string installedExe = Path.Combine(installedDir, "ECG Data Management.exe");
+
+            if (!File.Exists(installedExe))
+            {
+                LogInterceptor(appDir, "Installed ECG Data Management not found at " + installedExe);
+                return null;
+            }
+
+            DateTime installedWriteTimeUtc = File.GetLastWriteTimeUtc(installedExe);
+            DateTime portableWriteTimeUtc = File.GetLastWriteTimeUtc(exePath);
+
+            if (installedWriteTimeUtc <= portableWriteTimeUtc)
+            {
+                LogInterceptor(appDir, string.Format("Installed build ({0:o}) is not newer than portable build ({1:o}). Staying quiet.", installedWriteTimeUtc, portableWriteTimeUtc));
+                return null;
+            }
+
+            string skipFile = Path.Combine(appDir, "vendor-update-skip.txt");
+            if (File.Exists(skipFile))
+            {
+                try
+                {
+                    string content = File.ReadAllText(skipFile).Trim();
+                    long skipTicks;
+                    if (long.TryParse(content, out skipTicks) && skipTicks == installedWriteTimeUtc.Ticks)
+                    {
+                        LogInterceptor(appDir, "Installed build matches vendor-update-skip.txt ticks (" + skipTicks + "). Skipping prompt.");
+                        return null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogInterceptor(appDir, "Error reading vendor-update-skip.txt: " + ex.Message);
+                }
+            }
+
+            VendorUpdateChoice choice = ShowVendorUpdateDialog();
+            if (choice == VendorUpdateChoice.NotNow)
+            {
+                LogInterceptor(appDir, "Vendor update postponed by user ('Not now').");
+                return null;
+            }
+            if (choice == VendorUpdateChoice.DontAsk)
+            {
+                LogInterceptor(appDir, "Vendor update declined by user ('Don't ask for this build').");
+                try
+                {
+                    File.WriteAllText(skipFile, installedWriteTimeUtc.Ticks.ToString());
+                    LogInterceptor(appDir, "Saved declined ticks to vendor-update-skip.txt: " + installedWriteTimeUtc.Ticks);
+                }
+                catch (Exception ex)
+                {
+                    LogInterceptor(appDir, "Failed to write vendor-update-skip.txt: " + ex.Message);
+                }
+                return null;
+            }
+
+            // Yes path
+            LogInterceptor(appDir, "Vendor update accepted by user. Beginning update procedure.");
+
+            long dataBytes = Directory.Exists(portableDataDir) ? GetDirectorySizeBytes(portableDataDir) : 0;
+            long installedBytes = GetDirectorySizeBytesExcluding(installedDir, new string[] { "unins000.exe", "unins000.dat" });
+            long requiredBytes = dataBytes + installedBytes;
+
+            try
+            {
+                string root = Path.GetPathRoot(Path.GetFullPath(appDir));
+                DriveInfo driveInfo = new DriveInfo(root);
+                if (driveInfo.AvailableFreeSpace < requiredBytes)
+                {
+                    LogInterceptor(appDir, string.Format("Insufficient disk space on drive {0}. Required: {1} bytes, Available: {2} bytes", root, requiredBytes, driveInfo.AvailableFreeSpace));
+                    MessageBox.Show(
+                        string.Format(
+                            "Not enough free disk space on drive {0} to safely update.\n\n" +
+                            "Required: {1:N0} MB\n" +
+                            "Available: {2:N0} MB\n\n" +
+                            "Starting current version without updating.",
+                            root,
+                            requiredBytes / (1024 * 1024),
+                            driveInfo.AvailableFreeSpace / (1024 * 1024)),
+                        "AI-ECG Portable",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return null;
+                }
+            }
+            catch (Exception exDrive)
+            {
+                LogInterceptor(appDir, "Drive space check exception: " + exDrive.Message);
+            }
+
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string backupRoot = Path.Combine(appDir, "_backup", stamp);
+            try
+            {
+                Directory.CreateDirectory(backupRoot);
+                LogInterceptor(appDir, "Created backup folder: " + backupRoot);
+            }
+            catch (Exception exBackupRoot)
+            {
+                LogInterceptor(appDir, "Failed to create backup folder: " + exBackupRoot.Message);
+                MessageBox.Show(
+                    "Failed to create backup directory:\n" + backupRoot + "\n\nError: " + exBackupRoot.Message + "\n\nStarting current version without updating.",
+                    "AI-ECG Portable - Backup Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return null;
+            }
+
+            if (Directory.Exists(portableDataDir))
+            {
+                string backupDataDir = Path.Combine(backupRoot, "Data");
+                try
+                {
+                    LogInterceptor(appDir, "Backing up Data to " + backupDataDir);
+                    CopyDirectory(portableDataDir, backupDataDir);
+                }
+                catch (Exception exData)
+                {
+                    LogInterceptor(appDir, "Data backup failed: " + exData.Message);
+                    MessageBox.Show(
+                        "Failed to backup Data directory to:\n" + backupDataDir + "\n\nError: " + exData.Message + "\n\nStarting current version without updating.",
+                        "AI-ECG Portable - Backup Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return null;
+                }
+            }
+
+            string backupAppDir = Path.Combine(backupRoot, "App");
+            try
+            {
+                LogInterceptor(appDir, "Backing up current App to " + backupAppDir);
+                CopyDirectory(workingDir, backupAppDir);
+            }
+            catch (Exception exApp)
+            {
+                LogInterceptor(appDir, "App backup failed: " + exApp.Message);
+                MessageBox.Show(
+                    "Failed to backup App directory to:\n" + backupAppDir + "\n\nError: " + exApp.Message + "\n\nStarting current version without updating.",
+                    "AI-ECG Portable - Backup Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return null;
+            }
+
+            string appStagedDir = Path.Combine(backupRoot, "App-staged");
+            try
+            {
+                LogInterceptor(appDir, "Building App-staged from current App...");
+                CopyDirectory(workingDir, appStagedDir);
+                LogInterceptor(appDir, "Overlaying installed vendor files onto App-staged...");
+                CopyDirectoryExcluding(installedDir, appStagedDir, new string[] { "unins000.exe", "unins000.dat" });
+            }
+            catch (Exception exStaged)
+            {
+                LogInterceptor(appDir, "Staging vendor update failed: " + exStaged.Message);
+                MessageBox.Show(
+                    "Failed to stage updated files in:\n" + appStagedDir + "\n\nError: " + exStaged.Message + "\n\nStarting current version without updating.",
+                    "AI-ECG Portable - Staging Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return null;
+            }
+
+            string appPreviousDir = Path.Combine(backupRoot, "App-previous");
+            try
+            {
+                LogInterceptor(appDir, "Moving live App to App-previous...");
+                Directory.Move(workingDir, appPreviousDir);
+                try
+                {
+                    LogInterceptor(appDir, "Moving App-staged to live App...");
+                    Directory.Move(appStagedDir, workingDir);
+                }
+                catch (Exception exMoveStaged)
+                {
+                    LogInterceptor(appDir, "Failed to move App-staged to App: " + exMoveStaged.Message + ". Restoring App-previous...");
+                    try
+                    {
+                        if (Directory.Exists(appPreviousDir) && !Directory.Exists(workingDir))
+                        {
+                            Directory.Move(appPreviousDir, workingDir);
+                            LogInterceptor(appDir, "Successfully restored App-previous to live App.");
+                        }
+                    }
+                    catch (Exception exRestore)
+                    {
+                        LogInterceptor(appDir, "CRITICAL: Failed to restore App-previous: " + exRestore.Message);
+                    }
+
+                    MessageBox.Show(
+                        "Failed to activate new App directory:\n" + exMoveStaged.Message + "\n\nLive App has been restored to previous version.",
+                        "AI-ECG Portable - Update Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return null;
+                }
+            }
+            catch (Exception exMoveLive)
+            {
+                LogInterceptor(appDir, "Failed to move live App to App-previous: " + exMoveLive.Message);
+                MessageBox.Show(
+                    "Failed to rename live App directory:\n" + exMoveLive.Message + "\n\nStarting current version without updating.",
+                    "AI-ECG Portable - Update Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return null;
+            }
+
+            LogInterceptor(appDir, "Vendor update successfully applied to live App. Backup preserved at " + backupRoot);
+            return backupRoot;
+        }
+
+        private static long GetDirectorySizeBytes(string dir)
+        {
+            return GetDirectorySizeBytesExcluding(dir, null);
+        }
+
+        private static long GetDirectorySizeBytesExcluding(string dir, string[] excludedFileNames)
+        {
+            if (!Directory.Exists(dir)) return 0;
+            long total = 0;
+            try
+            {
+                foreach (string file in Directory.GetFiles(dir))
+                {
+                    string fileName = Path.GetFileName(file);
+                    bool excluded = false;
+                    if (excludedFileNames != null)
+                    {
+                        for (int j = 0; j < excludedFileNames.Length; j++)
+                        {
+                            if (string.Equals(fileName, excludedFileNames[j], StringComparison.OrdinalIgnoreCase))
+                            {
+                                excluded = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!excluded)
+                    {
+                        try
+                        {
+                            FileInfo fi = new FileInfo(file);
+                            total += fi.Length;
+                        }
+                        catch {}
+                    }
+                }
+
+                foreach (string subDir in Directory.GetDirectories(dir))
+                {
+                    total += GetDirectorySizeBytesExcluding(subDir, excludedFileNames);
+                }
+            }
+            catch {}
+            return total;
+        }
+
+        private static void CopyDirectoryExcluding(string sourceDir, string targetDir, string[] excludedFileNames)
+        {
+            Directory.CreateDirectory(targetDir);
+
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string fileName = Path.GetFileName(file);
+                bool excluded = false;
+                if (excludedFileNames != null)
+                {
+                    for (int i = 0; i < excludedFileNames.Length; i++)
+                    {
+                        if (string.Equals(fileName, excludedFileNames[i], StringComparison.OrdinalIgnoreCase))
+                        {
+                            excluded = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!excluded)
+                {
+                    string dest = Path.Combine(targetDir, fileName);
+                    File.Copy(file, dest, true);
+                }
+            }
+
+            foreach (string dir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = Path.GetFileName(dir);
+                string dest = Path.Combine(targetDir, dirName);
+                CopyDirectoryExcluding(dir, dest, excludedFileNames);
+            }
+        }
+
+        #endregion
     }
 }

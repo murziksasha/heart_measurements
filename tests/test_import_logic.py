@@ -14,6 +14,7 @@ from import_local_er1 import (
     format_report_chip,
     guess_serial,
     scan_folder_records,
+    is_er1_recording,
 )
 
 class TestImportLogic(unittest.TestCase):
@@ -67,6 +68,49 @@ class TestImportLogic(unittest.TestCase):
         self.assertEqual(format_duration(125), "2 m 05 s")
         self.assertEqual(format_duration(45), "45 s")
 
+    def test_is_er1_recording_accepts_valid(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            valid_header = b"\x01\xea\x07\n\x07\x0c\x00\x00\x00\x00" + b"\x00" * 6
+            # Test without serial
+            p1 = os.path.join(temp_dir, "R20261007120000")
+            with open(p1, "wb") as f:
+                f.write(valid_header)
+            self.assertTrue(is_er1_recording(p1))
+
+            # Test with serial
+            p2 = os.path.join(temp_dir, "2306490032R20261007120000")
+            with open(p2, "wb") as f:
+                f.write(valid_header)
+            self.assertTrue(is_er1_recording(p2))
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_is_er1_recording_rejects_invalid(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            valid_header = b"\x01\xea\x07\n\x07\x0c\x00\x00\x00\x00" + b"\x00" * 6
+
+            # Rejects RSlogo.png
+            p_png = os.path.join(temp_dir, "RSlogo.png")
+            with open(p_png, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20)
+            self.assertFalse(is_er1_recording(p_png))
+
+            # Rejects .txt whose name starts with R
+            p_txt = os.path.join(temp_dir, "Rnotes.txt")
+            with open(p_txt, "wb") as f:
+                f.write(valid_header)
+            self.assertFalse(is_er1_recording(p_txt))
+
+            # Rejects correctly named file whose first byte is not 0x01
+            p_bad_byte = os.path.join(temp_dir, "R20261007120000")
+            with open(p_bad_byte, "wb") as f:
+                f.write(b"\x00\xea\x07\n\x07\x0c\x00\x00\x00\x00" + b"\x00" * 6)
+            self.assertFalse(is_er1_recording(p_bad_byte))
+        finally:
+            shutil.rmtree(temp_dir)
+
     def test_scan_folder_records(self):
         temp_dir = tempfile.mkdtemp()
         try:
@@ -83,6 +127,26 @@ class TestImportLogic(unittest.TestCase):
             self.assertEqual(rec["timestamp"], "20261007120000")
             self.assertEqual(rec["datetime_display"], "2026-10-07 12:00:00")
             self.assertFalse(rec["is_duplicate"])
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_scan_folder_records_filters_non_ecg(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Valid recording
+            rec_path = os.path.join(temp_dir, "R20261007120000")
+            valid_header = b"\x01\xea\x07\n\x07\x0c\x00\x00\x00\x00"
+            with open(rec_path, "wb") as f:
+                f.write(valid_header + b"\x01" * 500)
+
+            # RSlogo.png in the same folder
+            logo_path = os.path.join(temp_dir, "RSlogo.png")
+            with open(logo_path, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 500)
+
+            records = scan_folder_records(temp_dir)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["filename"], "R20261007120000")
         finally:
             shutil.rmtree(temp_dir)
 
