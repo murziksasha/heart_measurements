@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import QBuffer, QByteArray, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QListWidget, QPushButton, QScrollArea, QSplitter, QStackedWidget, QTableWidget,
@@ -106,6 +106,7 @@ class ReportView(QWidget):
         self.inner.addTab(main, tr("summary"))
 
         self.pdf_doc = None
+        self.pdf_buffer = None  # PDF is loaded from memory: no OS file handle (Windows locks open files)
         if HAS_QTPDF:
             self.pdf_doc = QPdfDocument(self)
             self.pdf_view = QPdfView()
@@ -175,14 +176,26 @@ class ReportView(QWidget):
             self.pdf_doc.close()
             if has_pdf:
                 self.pdf_view.setDocument(self.pdf_doc)
-                self.pdf_doc.load(str(self.pdf_path))
+                self._load_pdf_from_memory(self.pdf_path)
             self.inner.setTabEnabled(1, has_pdf)
+
+    def _load_pdf_from_memory(self, path: Path):
+        buf = QBuffer(self)
+        buf.setData(QByteArray(path.read_bytes()))
+        buf.open(QBuffer.ReadOnly)
+        self.pdf_doc.load(buf)
+        if self.pdf_buffer is not None:
+            self.pdf_buffer.close()
+        self.pdf_buffer = buf
 
     def release_files(self):
         """Close the embedded PDF so the file can be moved/deleted (Windows locks open files)."""
         if self.pdf_doc is not None:
             self.pdf_view.setDocument(None)
             self.pdf_doc.close()
+            if self.pdf_buffer is not None:
+                self.pdf_buffer.close()
+                self.pdf_buffer = None
         self.pdf_path = None
         self.set_results([])
 

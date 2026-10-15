@@ -50,6 +50,10 @@ def app_data(tmp_path, small_vendor):
 def window(qtbot, app_data):
     repo, data = app_data
     w = MainWindow(repo, data, data / "ecg_app.db")
+
+    def fail(msg):  # never block on a modal box in tests
+        raise AssertionError(msg)
+    w.show_error = fail
     qtbot.addWidget(w)
     w.show()
     return w
@@ -267,3 +271,22 @@ def test_move_with_retry(tmp_path):
     src.write_text("y")
     with pytest.raises(PermissionError):
         move_with_retry(src, tmp_path / "c", attempts=2, delay=0, mover=lambda s, d: (_ for _ in ()).throw(PermissionError()))
+
+
+def test_pdf_loaded_from_memory_not_file(qtbot, app_data):
+    """The embedded PDF must not hold the file open (WinError 32 on Windows)."""
+    repo, data = app_data
+    from ecg_app.ui.report_view import HAS_QTPDF, ReportView
+    if not HAS_QTPDF:
+        pytest.skip("QtPdf not available")
+    v = ReportView(data)
+    qtbot.addWidget(v)
+    rec = repo.recordings.list()[0]
+    v.set_results(repo.analysis.for_recording(rec.id))
+    assert v.pdf_is_open() and v.pdf_buffer is not None and v.pdf_buffer.isOpen()
+    pdf = data / f"reports/{rec.id}/cloud_report.pdf"
+    moved = pdf.with_name("moved.pdf")
+    pdf.rename(moved)  # fails on Windows if a handle is open
+    moved.rename(pdf)
+    v.release_files()
+    assert not v.pdf_is_open() and v.pdf_buffer is None
