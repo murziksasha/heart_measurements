@@ -1,0 +1,221 @@
+{
+    "code": 200,
+    "data": {
+        "abnormalBeatCount": "28",
+        "abnormalBeatPercent": 0,
+        "afBeatPercent": 0,
+        "allEventList": [
+            {
+                "endPos": "14550393",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-13 06:34:25",
+                "startPos": "14548393"
+            },
+            {
+                "endPos": "12727497",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-13 04:32:53",
+                "startPos": "12725497"
+            },
+            {
+                "endPos": "3537757",
+                "eventCode": "13002",
+                "eventName": "最长RR间期",
+                "eventTime": "2026-10-12 18:20:15",
+                "startPos": "3535757"
+            },
+            {
+                "endPos": "6717263",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-12 21:52:13",
+                "startPos": "6715263"
+            },
+            {
+                "endPos": "6728247",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-12 21:52:56",
+                "startPos": "6726247"
+            },
+            {
+                "endPos": "17855402",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-13 10:14:45",
+                "startPos": "17853402"
+            },
+            {
+                "endPos": "17859212",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-13 10:15:00",
+                "startPos": "17857212"
+            },
+            {
+                "endPos": "17862240",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-13 10:15:12",
+                "startPos": "17860240"
+            },
+            {
+                "endPos": "9388298",
+                "eventCode": "11001",
+                "eventName": "室上性早搏成对",
+                "eventTime": "2026-10-13 00:50:17",
+                "startPos": "9386298"
+            },
+            {
+                "endPos": "4035838",
+                "eventCode": "11011",
+                "eventName": "室上性心动过速",
+                "eventTime": "2026-10-12 18:53:27",
+                "startPos": "4033838"
+            },
+            {
+                "endPos": "14550185",
+                "eventCode": "11011",
+                "eventName": "室上性心动过速",
+                "eventTime": "2026-10-13 06:34:24",
+                "startPos": "14548185"
+            },
+            {
+                "endPos": "13334768",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-13 05:13:23",
+                "startPos": "13332768"
+            },
+            {
+                "endPos": "13372168",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-13 05:15:52",
+                "startPos": "13370168"
+            },
+            {
+                "endPos": "15925119",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-13 08:06:04",
+                "startPos": "15923119"
+            },
+            {
+                "endPos": "16183757",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-13 08:23:19",
+                "startPos": "16181757"
+            }
+        ],
+        "analysisReport": "https://elasticbeanstalk-us-west-2-697648770036.s3.us-west-2.amazonaws.com/viatomstoragepro/data/file/2026/1015/05271ba5-1cad-474c-951c-425344d27d43.pdf",
+        "asystoleRRPeriodCount": 0,
+        "atrialBeatCount": 24,
+        "atrialBigeminyCount": 0,
+        "atrialPermatureBeatCount": 5,
+        "atrialTachycardiaCount": 2,
+        "atrialTrigeminyCount": 0,
+        "averageHeartRate": 75,
+        "beatCount": "100914",
+        "coupleAtrialPermatureCount": 1,
+        "coupleVentricularPermatureCount": 0,
+        "dataEndTime": "2026-10-13 13:46:02",
+        "dataStartTime": "2026-10-12 14:24:32",
+        "diagnoseList": [
+            {
+                "code": "101",
+                "diagnoseInfo": "Normal sinus rhythm"
+            },
+            {
+                "code": "141",
+                "diagnoseInfo": "Premature Supraventricular Contraction (PAC)"
+            },
+            {
+                "code": "143",
+                "diagnoseInfo": "Counplet of PAC"
+            },
+            {
+                "code": "161",
+                "diagnoseInfo": "Supraventricular tachycardia"
+            },
+            {
+                "code": "142",
+                "diagnoseInfo": "Premature Ventricular Contraction (PVC)"
+            }
+        ],
+        "eventList": [
+            {
+                "endPos": "14550393",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-13 06:34:25",
+                "startPos": "14548393"
+            },
+            {
+                "endPos": "12727497",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-13 04:32:53",
+                "startPos": "12725497"
+            },
+            {
+                "endPos": "3537757",
+                "eventCode": "13002",
+                "eventName": "最长RR间期",
+                "eventTime": "2026-10-12 18:20:15",
+                "startPos": "3535757"
+            },
+            {
+                "endPos": "6717263",
+                "eventCode": "11000",
+                "eventName": "室上性早搏",
+                "eventTime": "2026-10-12 21:52:13",
+                "startPos": "6715263"
+            },
+            {
+                "endPos": "9388298",
+                "eventCode": "11001",
+                "eventName": "室上性早搏成对",
+                "eventTime": "2026-10-13 00:50:17",
+                "startPos": "9386298"
+            },
+            {
+                "endPos": "4035838",
+                "eventCode": "11011",
+                "eventName": "室上性心动过速",
+                "eventTime": "2026-10-12 18:53:27",
+                "startPos": "4033838"
+            },
+            {
+                "endPos": "13334768",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-13 05:13:23",
+                "startPos": "13332768"
+            }
+        ],
+        "longRRPeriodCount": 1,
+        "longestAtrialTachycardiaDuration": 4,
+        "longestAtrialTachycardiaOccurTime": "2026-10-12 18:53:29",
+        "longestVentricularTachycardiaDuration": 0,
+        "longestVentricularTachycardiaOccurTime": "",
+        "maxHeartRate": 137,
+        "maxHeartRateTime": "2026-10-13 06:34:26",
+        "maxLongAsystoleTime": "2026-10-12 18:20:18",
+        "maxLongRRPeriod": 2.4,
+        "minHeartRate": 56,
+        "minHeartRateTime": "2026-10-13 04:32:54",
+        "reportTime": "2026-10-15 16:10:01",
+        "totalDuration": 84090,
+        "validDuration": 84090,
+        "ventricularBeatCount": 4,
+        "ventricularBigeminyCount": 0,
+        "ventricularPermatureBeatCount": 4,
+        "ventricularTachycardiaCount": 0,
+        "ventricularTrigeminyCount": 0
+    },
+    "msg": "success"
+}

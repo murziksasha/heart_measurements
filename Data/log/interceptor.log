@@ -53,3 +53,87 @@
 [2026-10-15 06:46:12.287] Matched Download dialog 2296182 (Title='ECG Data Management', Size=484x335)! Hiding and running modal...
 [2026-10-15 06:46:12.309] RunImportModal starting: exe=pythonw.exe, args="F:\SSD PROJECT\heart_measurements\import_gui.py"
 [2026-10-15 06:46:48.686] RunImportModal finished with exitCode 0
+[2026-10-15 07:54:37.473] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-15 10:58:06.692] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-15 11:01:47.248] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-15 12:18:42.928] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-15 12:22:18.164] Unified interceptor started for PID 14464
+[2026-10-15 12:22:18.895] EVENT_SHOW main window 590552
+[2026-10-15 12:22:19.167] Child + Add User button created successfully at (96, 106) on 590552
+[2026-10-15 12:22:43.955] Qt popup: HWND=460336, Title='ECG Data Management', Size=902x217, Owner=590552
+[2026-10-15 12:22:44.123] Re-check Qt popup: HWND=460336, Title='ECG Data Management', Size=902x217
+[2026-10-15 12:22:55.390] Qt popup: HWND=1508966, Title='ECG Data Management', Size=1142x816, Owner=590552
+[2026-10-15 12:22:55.564] Re-check Qt popup: HWND=1508966, Title='ECG Data Management', Size=1331x816
+[2026-10-16 09:28:33.414] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-16 09:30:32.027] Unified interceptor started for PID 8696
+[2026-10-16 09:30:32.837] EVENT_SHOW main window 197424
+[2026-10-16 09:30:33.244] Child + Add User button created successfully at (96, 106) on 197424
+[2026-10-16 09:30:40.254] Qt popup: HWND=198358, Title='ECG Data Management', Size=902x217, Owner=197424
+[2026-10-16 09:30:40.418] Re-check Qt popup: HWND=198358, Title='ECG Data Management', Size=902x217
+[2026-10-16 09:30:50.245] Qt popup: HWND=262658, Title='ECG Data Management', Size=902x217, Owner=197424
+[2026-10-16 09:30:50.403] Re-check Qt popup: HWND=262658, Title='ECG Data Management', Size=902x217
+[2026-10-16 09:30:59.158] Qt popup: HWND=328194, Title='ECG Browser', Size=75x62, Owner=0
+[2026-10-16 09:30:59.158] Ignoring small popup/messagebox HWND=328194, Size=75x62
+[2026-10-16 09:30:59.326] Re-check Qt popup: HWND=328194, Title='ECG Browser', Size=75x62
+[2026-10-16 09:30:59.326] Ignoring small popup/messagebox HWND=328194, Size=75x62
+[2026-10-16 09:31:00.671] Qt popup: HWND=329430, Title='ECG Data Management', Size=443x313, Owner=197424
+[2026-10-16 09:31:00.845] Re-check Qt popup: HWND=329430, Title='ECG Data Management', Size=443x313
+[2026-10-16 09:34:48.069] Qt popup: HWND=263920, Title='ECG Data Management', Size=400x251, Owner=197424
+[2026-10-16 09:34:48.224] Re-check Qt popup: HWND=263920, Title='ECG Data Management', Size=400x251
+[2026-10-16 09:34:55.303] Qt popup: HWND=329456, Title='ECG Data Management', Size=331x177, Owner=197424
+[2026-10-16 09:34:55.305] Ignoring small popup/messagebox HWND=329456, Size=331x177
+[2026-10-16 09:34:55.466] Re-check Qt popup: HWND=329456, Title='ECG Data Management', Size=331x177
+[2026-10-16 09:34:55.467] Ignoring small popup/messagebox HWND=329456, Size=331x177
+[2026-10-16 09:36:42.156] Qt popup: HWND=722702, Title='ECG Data Management', Size=1142x816, Owner=197424
+[2026-10-16 09:36:42.328] Re-check Qt popup: HWND=722702, Title='ECG Data Management', Size=1398x816
+[2026-10-16 09:36:46.193] Qt popup: HWND=460402, Title='ECG Browser', Size=243x9, Owner=0
+[2026-10-16 09:36:46.194] Ignoring small popup/messagebox HWND=460402, Size=243x9
+[2026-10-16 09:36:46.225] Qt popup: HWND=395058, Title='ECG Browser', Size=243x24, Owner=0
+[2026-10-16 09:36:46.225] Ignoring small popup/messagebox HWND=395058, Size=243x24
+[2026-10-16 09:36:46.383] Re-check Qt popup: HWND=395058, Title='ECG Browser', Size=243x24
+[2026-10-16 09:36:46.383] Ignoring small popup/messagebox HWND=395058, Size=243x24
+[2026-10-16 09:36:47.852] Qt popup: HWND=460594, Title='ECG Browser', Size=120x24, Owner=0
+[2026-10-16 09:36:47.852] Ignoring small popup/messagebox HWND=460594, Size=120x24
+[2026-10-16 09:36:48.025] Re-check Qt popup: HWND=460594, Title='ECG Browser', Size=243x24
+[2026-10-16 09:36:48.025] Ignoring small popup/messagebox HWND=460594, Size=243x24
+[2026-10-21 18:45:22.551] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-21 18:53:17.358] Unified interceptor started for PID 14712
+[2026-10-21 18:53:19.477] EVENT_SHOW main window 8457296
+[2026-10-21 18:53:20.746] Child + Add User button created successfully at (96, 106) on 8457296
+[2026-10-21 18:53:49.879] Qt popup: HWND=2034686, Title='ECG Data Management', Size=902x217, Owner=8457296
+[2026-10-21 18:53:50.044] Re-check Qt popup: HWND=2034686, Title='ECG Data Management', Size=902x217
+[2026-10-21 18:54:39.037] Qt popup: HWND=724320, Title='ECG Data Management', Size=1344x816, Owner=8457296
+[2026-10-21 18:54:39.199] Re-check Qt popup: HWND=724320, Title='ECG Data Management', Size=1344x816
+[2026-10-21 18:55:31.784] Qt popup: HWND=2492074, Title='ECG Data Management', Size=350x83, Owner=0
+[2026-10-21 18:55:31.799] Ignoring small popup/messagebox HWND=2492074, Size=350x83
+[2026-10-21 18:55:32.024] Re-check Qt popup: HWND=2492074, Title='ECG Data Management', Size=350x83
+[2026-10-21 18:55:32.026] Ignoring small popup/messagebox HWND=2492074, Size=350x83
+[2026-10-21 19:22:07.719] Qt popup: HWND=1379596, Title='ECG Data Management', Size=1142x816, Owner=8457296
+[2026-10-21 19:22:07.884] Re-check Qt popup: HWND=1379596, Title='ECG Data Management', Size=1364x816
+[2026-10-21 19:26:47.387] Qt popup: HWND=200278, Title='ECG Browser', Size=188x24, Owner=0
+[2026-10-21 19:26:47.388] Ignoring small popup/messagebox HWND=200278, Size=188x24
+[2026-10-21 19:26:47.555] Re-check Qt popup: HWND=200278, Title='ECG Browser', Size=188x24
+[2026-10-21 19:26:47.556] Ignoring small popup/messagebox HWND=200278, Size=188x24
+[2026-10-21 19:27:11.334] Qt popup: HWND=1445330, Title='ECG Browser', Size=257x24, Owner=0
+[2026-10-21 19:27:11.336] Ignoring small popup/messagebox HWND=1445330, Size=257x24
+[2026-10-21 19:27:11.506] Re-check Qt popup: HWND=1445330, Title='ECG Browser', Size=257x24
+[2026-10-21 19:27:11.507] Ignoring small popup/messagebox HWND=1445330, Size=257x24
+[2026-10-21 19:28:05.871] Qt popup: HWND=4197832, Title='ECG Browser', Size=120x24, Owner=0
+[2026-10-21 19:28:05.872] Ignoring small popup/messagebox HWND=4197832, Size=120x24
+[2026-10-21 19:28:06.031] Re-check Qt popup: HWND=4197832, Title='ECG Browser', Size=120x24
+[2026-10-21 19:28:06.034] Ignoring small popup/messagebox HWND=4197832, Size=120x24
+[2026-10-23 07:00:25.377] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-23 07:06:45.279] Unified interceptor started for PID 6872
+[2026-10-23 07:06:46.848] EVENT_SHOW main window 460512
+[2026-10-23 07:06:47.529] Child + Add User button created successfully at (96, 106) on 460512
+[2026-10-23 07:07:04.589] Qt popup: HWND=460568, Title='ECG Data Management', Size=902x217, Owner=460512
+[2026-10-23 07:07:04.744] Re-check Qt popup: HWND=460568, Title='ECG Data Management', Size=902x217
+[2026-10-23 07:08:13.188] Qt popup: HWND=590360, Title='ECG Data Management', Size=596x281, Owner=460512
+[2026-10-23 07:08:13.343] Re-check Qt popup: HWND=590360, Title='ECG Data Management', Size=596x281
+[2026-10-23 07:08:21.336] Qt popup: HWND=460402, Title='ECG Data Management', Size=1364x816, Owner=460512
+[2026-10-23 07:08:21.494] Re-check Qt popup: HWND=460402, Title='ECG Data Management', Size=1364x816
+[2026-10-23 11:18:41.816] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-23 11:21:42.358] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-23 11:25:38.389] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-23 11:29:13.783] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
+[2026-10-23 11:45:22.837] Installed ECG Data Management not found at C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe
