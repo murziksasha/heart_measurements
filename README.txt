@@ -10,8 +10,8 @@ rights.
 
 HOW TO USE:
 1. Double-click "AI-ECG Portable.exe" to start the application.
-2. The application automatically logs into your account (1versuses1@gmail.com)
-   with patient profile "Grygoriev" and your registered ER1 device ready.
+2. ECG Data Management opens its own login. Email and password start empty
+   until you sign in. After that, the original app may remember the login.
 3. To import ECG recordings:
    - In the top toolbar, click "Import Data".
    - The import chooser opens with three options:

@@ -21,11 +21,26 @@ class TestUserManagement(unittest.TestCase):
 
         # Mock target locations
         self.orig_get_target_locations = manage_users.get_target_locations
+        self.orig_script_dir = manage_users.SCRIPT_DIR
         manage_users.get_target_locations = lambda: [self.data_dir]
         manage_users.SCRIPT_DIR = self.temp_dir
+        self._set_admin("admin@example.com")
+
+    def _set_admin(self, email):
+        conn = sqlite3.connect(self.test_db)
+        cur = conn.cursor()
+        cur.execute("UPDATE tb_admin SET admin = ?", (email,))
+        if cur.rowcount == 0:
+            cur.execute(
+                "INSERT INTO tb_admin (admin, userid, vanish_id) VALUES (?, ?, ?)",
+                (email, 1, ""),
+            )
+        conn.commit()
+        conn.close()
 
     def tearDown(self):
         manage_users.get_target_locations = self.orig_get_target_locations
+        manage_users.SCRIPT_DIR = self.orig_script_dir
         shutil.rmtree(self.temp_dir)
 
     def test_calculate_age(self):
@@ -85,12 +100,14 @@ class TestUserManagement(unittest.TestCase):
             manage_users.add_subuser(name="A" * 25)
 
     def test_delete_subuser(self):
+        manage_users.add_subuser(name="Primary", gender="Male", birthday="1980-01-01")
         created = manage_users.add_subuser(
             name="Bob Jones",
             gender="Male",
             birthday="1980-01-01"
         )
         uid = created["id"]
+        self.assertNotEqual(uid, 1)
         manage_users.delete_subuser(uid)
 
         users = manage_users.get_all_subusers()
@@ -99,6 +116,38 @@ class TestUserManagement(unittest.TestCase):
         # Test deleting default user ID 1 raises error
         with self.assertRaises(ValueError):
             manage_users.delete_subuser(1)
+
+    def test_add_requires_sign_in(self):
+        self._set_admin("")
+        with self.assertRaises(ValueError) as caught:
+            manage_users.add_subuser(name="No Account", gender="Male", birthday="1990-01-01")
+        self.assertEqual(str(caught.exception), manage_users.SIGN_IN_REQUIRED)
+
+    def test_edit_and_delete_keep_stored_email_without_account(self):
+        manage_users.add_subuser(name="Primary", gender="Male", birthday="1970-01-01")
+        created = manage_users.add_subuser(name="Keep Email", gender="Male", birthday="1980-01-01")
+        self.assertNotEqual(created["id"], 1)
+        conn = sqlite3.connect(self.test_db)
+        cur = conn.cursor()
+        cur.execute("SELECT userkey FROM tb_subuser WHERE subusr_id = ?", (created["id"],))
+        stored = cur.fetchone()[0]
+        conn.close()
+        self._set_admin("")
+
+        updated = manage_users.update_subuser(
+            created["id"], name="Keep Email", gender="Female", birthday="1980-01-01",
+            email="other@example.com", height=170, weight=60,
+        )
+        self.assertEqual(updated["email"], stored)
+        conn = sqlite3.connect(self.test_db)
+        cur = conn.cursor()
+        cur.execute("SELECT userkey FROM tb_subuser WHERE subusr_id = ?", (created["id"],))
+        self.assertEqual(cur.fetchone()[0], stored)
+        conn.close()
+
+        manage_users.delete_subuser(created["id"])
+        users = manage_users.get_all_subusers()
+        self.assertNotIn(created["id"], [user["id"] for user in users])
 
 
 if __name__ == "__main__":

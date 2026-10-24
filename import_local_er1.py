@@ -374,31 +374,63 @@ def format_duration(seconds):
     else:
         return f"{secs} s"
 
+SIGN_IN_REQUIRED = "Sign in with ECG Data Management first."
+
+
+def current_account():
+    """Account email stored by ECG Data Management. Does not invent one."""
+    db_path = get_primary_db_path()
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT admin FROM tb_admin LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if row and str(row[0] or "").strip():
+                return str(row[0]).strip()
+        except Exception:
+            pass
+
+    for config_path in (
+        os.path.join(SCRIPT_DIR, "Data", "config.ini"),
+        os.path.join(os.path.dirname(SCRIPT_DIR), "Data", "config.ini"),
+    ):
+        if not os.path.exists(config_path):
+            continue
+        try:
+            with open(config_path, "r", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    if line.startswith("LoginString="):
+                        value = line.strip().split("=", 1)[1].strip()
+                        if value:
+                            return value
+        except Exception:
+            continue
+    return ""
+
+
 def get_subusers():
     """Retrieves all registered patients/subusers from the database."""
     db_path = get_primary_db_path()
     if not os.path.exists(db_path):
-        return [{"id": 1, "name": "Grygoriev", "age": 41, "gender": "Male", "email": "1versuses1@gmail.com"}]
-    
+        return []
+
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-
-    default_email = "1versuses1@gmail.com"
     try:
-        cur.execute("SELECT admin FROM tb_admin LIMIT 1")
-        row = cur.fetchone()
-        if row and row[0]:
-            default_email = row[0]
-    except Exception:
-        pass
-
-    try:
-        cur.execute("SELECT subusr_id, name, gender, birthday FROM tb_subuser ORDER BY subusr_id")
+        cur.execute("SELECT subusr_id, name, gender, birthday, userkey FROM tb_subuser ORDER BY subusr_id")
         rows = cur.fetchall()
+        has_userkey = True
     except Exception:
-        rows = []
+        has_userkey = False
+        try:
+            cur.execute("SELECT subusr_id, name, gender, birthday FROM tb_subuser ORDER BY subusr_id")
+            rows = cur.fetchall()
+        except Exception:
+            rows = []
     conn.close()
-    
+
     subusers = []
     current_year = datetime.now().year
     for r in rows:
@@ -414,16 +446,17 @@ def get_subusers():
                 age = max(0, current_year - b_year)
             except Exception:
                 age = 0
+        stored_email = ""
+        if has_userkey and len(r) > 4 and r[4]:
+            stored_email = str(r[4])
 
         subusers.append({
             "id": subusr_id,
             "name": name,
             "age": age,
             "gender": gender_str,
-            "email": default_email
+            "email": stored_email
         })
-    if not subusers:
-        subusers.append({"id": 1, "name": "Grygoriev", "age": 41, "gender": "Male", "email": default_email})
     return subusers
 
 def get_default_device_and_subuser():
@@ -519,6 +552,9 @@ def import_single_file(filepath, sn=None, subusr_id=None, force=False):
     Imports one ER1 file into all active DATA locations (portable and AppData).
     Returns (success: bool, status_msg: str, timestamp: str)
     """
+    if not current_account():
+        return False, SIGN_IN_REQUIRED, ""
+
     if not is_er1_recording(filepath):
         return False, f"Not a valid ER1 recording: {filepath}", ""
 

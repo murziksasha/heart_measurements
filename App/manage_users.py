@@ -69,8 +69,11 @@ def get_primary_db_path():
     return os.path.join(locs[0], "db_lepu_care_world.db")
 
 
+SIGN_IN_REQUIRED = "Sign in with ECG Data Management first."
+
+
 def get_current_admin():
-    """Returns active admin account email."""
+    """Returns the account email stored by ECG Data Management."""
     db_path = get_primary_db_path()
     if os.path.exists(db_path):
         try:
@@ -79,22 +82,28 @@ def get_current_admin():
             cur.execute("SELECT admin FROM tb_admin LIMIT 1")
             row = cur.fetchone()
             conn.close()
-            if row and row[0]:
-                return row[0]
+            if row and str(row[0] or "").strip():
+                return str(row[0]).strip()
         except Exception:
             pass
 
-    config_path = os.path.join(SCRIPT_DIR, "Data", "config.ini")
-    if os.path.exists(config_path):
+    for config_path in (
+        os.path.join(SCRIPT_DIR, "Data", "config.ini"),
+        os.path.join(os.path.dirname(SCRIPT_DIR), "Data", "config.ini"),
+    ):
+        if not os.path.exists(config_path):
+            continue
         try:
-            with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
+            with open(config_path, "r", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
                     if line.startswith("LoginString="):
-                        return line.strip().split("=", 1)[1]
+                        value = line.strip().split("=", 1)[1].strip()
+                        if value:
+                            return value
         except Exception:
-            pass
+            continue
 
-    return "1versuses1@gmail.com"
+    return ""
 
 
 def calculate_age(birthday_str):
@@ -133,16 +142,17 @@ def get_all_subusers():
     rows = cur.fetchall()
     conn.close()
 
-    admin_email = get_current_admin()
     users = []
     for r in rows:
         subusr_id, familyid, userkey, admin_val, name, gender_code, birthday, height, weight, rec_count = r
         gender_str = "Male" if gender_code == 2 else "Female" if gender_code == 1 else "Unknown"
         b_str = str(birthday) if birthday else ""
+        stored_email = "" if userkey is None else str(userkey)
         users.append({
             "id": subusr_id,
             "familyid": familyid,
-            "userkey": userkey or admin_email,
+            "userkey": stored_email,
+            "email": stored_email,
             "name": name or f"User {subusr_id}",
             "gender": gender_str,
             "gender_code": gender_code,
@@ -184,14 +194,15 @@ def add_subuser(name, gender="Male", birthday="1990-01-01", email=None, height=0
     Generates a unique familyid, creates patient folder, and updates tb_subusr_selected_time.
     Returns the created user dict.
     note is accepted for older callers and is not stored: tb_subuser has no note column.
+    email is ignored. The account is the one ECG Data Management stored.
     """
     name = _validate_name(name)
     height, weight = _validate_body(height, weight)
 
     gender_code = 2 if str(gender).strip().lower() in ["male", "m", "2"] else 1
+    email = str(get_current_admin() or "").strip()
     if not email:
-        email = get_current_admin()
-    email = str(email).strip()
+        raise ValueError(SIGN_IN_REQUIRED)
 
     locations = get_target_locations()
     new_subusr_id = None
@@ -253,15 +264,30 @@ def add_subuser(name, gender="Male", birthday="1990-01-01", email=None, height=0
     return created_user
 
 
+def _stored_userkey(subusr_id):
+    """Email already stored on a patient row."""
+    subusr_id = int(subusr_id)
+    for loc in get_target_locations():
+        db_path = os.path.join(loc, "db_lepu_care_world.db")
+        if not os.path.exists(db_path):
+            continue
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT userkey FROM tb_subuser WHERE subusr_id = ?", (subusr_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return "" if row[0] is None else str(row[0])
+    return ""
+
+
 def update_subuser(subusr_id, name, gender="Male", birthday="1990-01-01", email=None, height=0, weight=0):
-    """Updates an existing patient on every database copy. Does not change the id."""
+    """Updates an existing patient on every database copy. Does not change the id or account email."""
     name = _validate_name(name)
     height, weight = _validate_body(height, weight)
     gender_code = 2 if str(gender).strip().lower() in ["male", "m", "2"] else 1
-    if not email:
-        email = get_current_admin()
-    email = str(email).strip()
     subusr_id = int(subusr_id)
+    email = _stored_userkey(subusr_id)
 
     updated = False
     for loc in get_target_locations():
@@ -366,7 +392,11 @@ class AddUserBase:
         current = self.existing or {}
         self.name_var = tk.StringVar(value=current.get("name") or "")
         self.gender_var = tk.StringVar(value=current.get("gender") if current.get("gender") in ("Male", "Female") else "Male")
-        self.email_var = tk.StringVar(value=current.get("email") or get_current_admin())
+        if self.editing:
+            shown_email = current.get("email") or current.get("userkey") or ""
+        else:
+            shown_email = get_current_admin()
+        self.email_var = tk.StringVar(value=shown_email)
         self.height_var = tk.StringVar(value=str(current.get("height") or 0))
         self.weight_var = tk.StringVar(value=str(current.get("weight") or 0))
         self.count_var = tk.StringVar(value="0/20")
@@ -600,6 +630,10 @@ class AddUserDialog(tk.Toplevel, AddUserBase):
         super().__init__(parent)
         if parent:
             self.transient(parent)
+        if existing is None and not str(get_current_admin() or "").strip():
+            messagebox.showinfo("Sign in", SIGN_IN_REQUIRED, parent=parent or self)
+            self.after(0, self.destroy)
+            return
         self.grab_set()
         self._setup_dialog(on_success, existing=existing)
 
@@ -613,6 +647,10 @@ class StandaloneAddUserApp(tk.Tk, AddUserBase):
         super().__init__()
         self.result_status = {"added": False, "refresh": True}
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if not str(get_current_admin() or "").strip():
+            messagebox.showinfo("Sign in", SIGN_IN_REQUIRED, parent=self)
+            self.after(0, self.destroy)
+            return
         self._setup_dialog(on_success=self._on_user_created)
 
     def _on_user_created(self, created):
@@ -826,7 +864,7 @@ def main():
     parser.add_argument("--add", metavar="NAME", help="Add patient by name (CLI)")
     parser.add_argument("--gender", default="Male", choices=["Male", "Female"], help="Gender for --add")
     parser.add_argument("--birthday", default="1990-01-01", help="Birthday (YYYY-MM-DD) for --add")
-    parser.add_argument("--email", help="Account email for --add")
+    parser.add_argument("--email", help="Ignored. The account comes from ECG Data Management.")
     parser.add_argument("--note", default="", help="Note / remark for --add")
     parser.add_argument("--delete", type=int, metavar="ID", help="Delete patient by ID")
 

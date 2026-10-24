@@ -12,7 +12,7 @@ import sys
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 
 from import_local_er1 import (
     scan_folder_records,
@@ -22,7 +22,7 @@ from import_local_er1 import (
     format_report_chip,
     format_file_size,
 )
-from manage_users import AddUserDialog, get_all_subusers
+from manage_users import SIGN_IN_REQUIRED, AddUserDialog, get_all_subusers, get_current_admin
 from ui_theme import (
     BG, CARD, BORDER, TEXT, MUTED, PRIMARY, SUCCESS, WARNING, ERROR, ROW_ALT, STRIPE,
     FONT, FONT_BOLD, FONT_SMALL, FONT_TITLE,
@@ -416,6 +416,9 @@ class FolderImportApp(tk.Tk):
     def _do_import(self):
         selected = [record for record in self._selected_records() if not record["is_duplicate"]]
         if not selected or self._busy:
+            return
+        if not str(get_current_admin() or "").strip():
+            messagebox.showinfo("Sign in", SIGN_IN_REQUIRED, parent=self)
             return
         jobs = [(record["filepath"], False) for record in selected]
         patient_id = self._selected_patient_id()
