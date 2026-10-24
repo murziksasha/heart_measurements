@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import sqlite3
 import struct
+import import_local_er1
 from import_local_er1 import (
     decompress_er1,
     count_samples,
@@ -15,6 +16,9 @@ from import_local_er1 import (
     guess_serial,
     scan_folder_records,
     is_er1_recording,
+    get_subusers,
+    import_single_file,
+    SIGN_IN_REQUIRED,
 )
 
 class TestImportLogic(unittest.TestCase):
@@ -147,6 +151,58 @@ class TestImportLogic(unittest.TestCase):
             records = scan_folder_records(temp_dir)
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["filename"], "R20261007120000")
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_get_subusers_does_not_invent_a_patient(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            db_path = os.path.join(temp_dir, "empty.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE tb_subuser (subusr_id INTEGER, name TEXT, gender INTEGER, birthday TEXT, userkey TEXT)"
+            )
+            conn.execute("CREATE TABLE tb_admin (admin TEXT)")
+            conn.commit()
+            conn.close()
+            orig_primary = import_local_er1.get_primary_db_path
+            orig_script = import_local_er1.SCRIPT_DIR
+            import_local_er1.get_primary_db_path = lambda: db_path
+            import_local_er1.SCRIPT_DIR = temp_dir
+            try:
+                self.assertEqual(get_subusers(), [])
+                import_local_er1.get_primary_db_path = lambda: os.path.join(temp_dir, "missing.db")
+                self.assertEqual(get_subusers(), [])
+            finally:
+                import_local_er1.get_primary_db_path = orig_primary
+                import_local_er1.SCRIPT_DIR = orig_script
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_import_writes_nothing_without_account(self):
+        temp_dir = tempfile.mkdtemp()
+        try:
+            data_dir = os.path.join(temp_dir, "Data", "DATA")
+            os.makedirs(data_dir)
+            db_path = os.path.join(data_dir, "db_lepu_care_world.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute("CREATE TABLE tb_admin (admin TEXT)")
+            conn.execute("INSERT INTO tb_admin (admin) VALUES ('')")
+            conn.commit()
+            conn.close()
+            orig_primary = import_local_er1.get_primary_db_path
+            orig_script = import_local_er1.SCRIPT_DIR
+            import_local_er1.get_primary_db_path = lambda: db_path
+            import_local_er1.SCRIPT_DIR = temp_dir
+            try:
+                ok, message, timestamp = import_single_file(os.path.join(temp_dir, "missing"))
+                self.assertFalse(ok)
+                self.assertEqual(message, SIGN_IN_REQUIRED)
+                self.assertEqual(timestamp, "")
+                self.assertEqual(os.listdir(data_dir), ["db_lepu_care_world.db"])
+            finally:
+                import_local_er1.get_primary_db_path = orig_primary
+                import_local_er1.SCRIPT_DIR = orig_script
         finally:
             shutil.rmtree(temp_dir)
 
