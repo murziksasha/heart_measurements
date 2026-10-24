@@ -19,6 +19,38 @@ from datetime import datetime
 
 _SERIAL_BEFORE_R = re.compile(r"(?<!\d)(\d{8,12})R")
 _SERIAL_EXACT = re.compile(r"^\d{8,12}$")
+_ER1_FILENAME_RE = re.compile(r"^(?:\d{8,12})?R\d{14}$")
+
+
+def is_er1_recording(path):
+    """
+    Validates whether path points to a real ER1 raw recording:
+    - file exists, size at least 16 bytes
+    - basename matches ^(?:\d{8,12})?R\d{14}$
+    - first byte is 0x01 and bytes 1–7 unpack to a real datetime
+    """
+    if not path:
+        return False
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) < 16:
+            return False
+    except OSError:
+        return False
+
+    base = os.path.basename(path)
+    if not _ER1_FILENAME_RE.match(base):
+        return False
+
+    try:
+        with open(path, "rb") as f:
+            header = f.read(8)
+        if len(header) < 8 or header[0] != 0x01:
+            return False
+        year, month, day, hour, minute, second = struct.unpack("<HBBBBB", header[1:8])
+        datetime(year, month, day, hour, minute, second)
+        return True
+    except Exception:
+        return False
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -155,6 +187,10 @@ def parse_header_timestamp(r_bytes, fallback_filename):
     falling back to binary header if needed.
     """
     base = os.path.basename(fallback_filename)
+    m = re.search(r"R(\d{14})", base)
+    if m:
+        return m.group(1)
+
     digits = ''.join(c for c in base if c.isdigit())
     if len(digits) >= 14:
         return digits[:14]
@@ -311,9 +347,8 @@ def find_recording_sources():
 
 
 def inspect_recording_folder(folder_path):
-    """Count top-level R* recordings and guess a serial from file names."""
-    names = []
-    count = 0
+    """Count top-level ER1 recordings and guess a serial from file names."""
+    valid_names = []
     if os.path.isdir(folder_path):
         try:
             names = os.listdir(folder_path)
@@ -321,9 +356,9 @@ def inspect_recording_folder(folder_path):
             names = []
         for name in names:
             full = os.path.join(folder_path, name)
-            if os.path.isfile(full) and name.startswith("R"):
-                count += 1
-    return {"count": count, "serial": guess_serial(names)}
+            if is_er1_recording(full):
+                valid_names.append(name)
+    return {"count": len(valid_names), "serial": guess_serial(valid_names)}
 
 
 def format_duration(seconds):
@@ -339,31 +374,63 @@ def format_duration(seconds):
     else:
         return f"{secs} s"
 
+SIGN_IN_REQUIRED = "Sign in with ECG Data Management first."
+
+
+def current_account():
+    """Account email stored by ECG Data Management. Does not invent one."""
+    db_path = get_primary_db_path()
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT admin FROM tb_admin LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if row and str(row[0] or "").strip():
+                return str(row[0]).strip()
+        except Exception:
+            pass
+
+    for config_path in (
+        os.path.join(SCRIPT_DIR, "Data", "config.ini"),
+        os.path.join(os.path.dirname(SCRIPT_DIR), "Data", "config.ini"),
+    ):
+        if not os.path.exists(config_path):
+            continue
+        try:
+            with open(config_path, "r", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    if line.startswith("LoginString="):
+                        value = line.strip().split("=", 1)[1].strip()
+                        if value:
+                            return value
+        except Exception:
+            continue
+    return ""
+
+
 def get_subusers():
     """Retrieves all registered patients/subusers from the database."""
     db_path = get_primary_db_path()
     if not os.path.exists(db_path):
-        return [{"id": 1, "name": "Grygoriev", "age": 41, "gender": "Male", "email": "1versuses1@gmail.com"}]
-    
+        return []
+
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-
-    default_email = "1versuses1@gmail.com"
     try:
-        cur.execute("SELECT admin FROM tb_admin LIMIT 1")
-        row = cur.fetchone()
-        if row and row[0]:
-            default_email = row[0]
-    except Exception:
-        pass
-
-    try:
-        cur.execute("SELECT subusr_id, name, gender, birthday FROM tb_subuser ORDER BY subusr_id")
+        cur.execute("SELECT subusr_id, name, gender, birthday, userkey FROM tb_subuser ORDER BY subusr_id")
         rows = cur.fetchall()
+        has_userkey = True
     except Exception:
-        rows = []
+        has_userkey = False
+        try:
+            cur.execute("SELECT subusr_id, name, gender, birthday FROM tb_subuser ORDER BY subusr_id")
+            rows = cur.fetchall()
+        except Exception:
+            rows = []
     conn.close()
-    
+
     subusers = []
     current_year = datetime.now().year
     for r in rows:
@@ -379,16 +446,17 @@ def get_subusers():
                 age = max(0, current_year - b_year)
             except Exception:
                 age = 0
+        stored_email = ""
+        if has_userkey and len(r) > 4 and r[4]:
+            stored_email = str(r[4])
 
         subusers.append({
             "id": subusr_id,
             "name": name,
             "age": age,
             "gender": gender_str,
-            "email": default_email
+            "email": stored_email
         })
-    if not subusers:
-        subusers.append({"id": 1, "name": "Grygoriev", "age": 41, "gender": "Male", "email": default_email})
     return subusers
 
 def get_default_device_and_subuser():
@@ -429,16 +497,18 @@ def get_existing_records(subusr_id=None):
 
 def scan_folder_records(folder_path, subusr_id=None):
     """
-    Scans a folder for ER1 recordings (starting with 'R'), analyzes each file,
+    Scans a folder for ER1 recordings, analyzes each file,
     and checks uniqueness against the database.
     """
-    if not os.path.exists(folder_path):
+    if not os.path.isdir(folder_path):
         return []
 
-    r_files = [
-        f for f in glob.glob(os.path.join(folder_path, "*"))
-        if os.path.isfile(f) and os.path.basename(f).startswith("R")
-    ]
+    try:
+        entries = [os.path.join(folder_path, name) for name in os.listdir(folder_path)]
+    except Exception:
+        return []
+
+    r_files = [f for f in entries if is_er1_recording(f)]
     r_files.sort(key=lambda x: os.path.basename(x))
 
     existing = get_existing_records(subusr_id)
@@ -447,8 +517,6 @@ def scan_folder_records(folder_path, subusr_id=None):
     for filepath in r_files:
         filename = os.path.basename(filepath)
         size = os.path.getsize(filepath)
-        if size < 16:
-            continue
 
         with open(filepath, "rb") as f:
             header_sample = f.read(16)
@@ -481,17 +549,17 @@ def scan_folder_records(folder_path, subusr_id=None):
 
 def import_single_file(filepath, sn=None, subusr_id=None, force=False):
     """
-    Imports one R* file into all active DATA locations (portable and AppData).
+    Imports one ER1 file into all active DATA locations (portable and AppData).
     Returns (success: bool, status_msg: str, timestamp: str)
     """
-    if not os.path.exists(filepath):
-        return False, f"File not found: {filepath}", ""
+    if not current_account():
+        return False, SIGN_IN_REQUIRED, ""
+
+    if not is_er1_recording(filepath):
+        return False, f"Not a valid ER1 recording: {filepath}", ""
 
     with open(filepath, "rb") as f:
         r_bytes = f.read()
-
-    if len(r_bytes) < 16:
-        return False, "File too small (< 16 bytes)", ""
 
     default_sn, default_subusr = get_default_device_and_subuser()
     file_sn = guess_serial([os.path.basename(filepath)])
@@ -600,11 +668,19 @@ def import_r_file(filepath, sn=None, subusr_id=None):
 def scan_and_import(target_path):
     """Legacy compatibility function."""
     if os.path.isfile(target_path):
+        if not is_er1_recording(target_path):
+            print(f"[!] Not a valid ER1 recording file: {target_path}")
+            return False
         return import_r_file(target_path)
     elif os.path.isdir(target_path):
-        r_files = [f for f in glob.glob(os.path.join(target_path, "*")) if os.path.isfile(f) and os.path.basename(f).startswith("R")]
+        try:
+            entries = [os.path.join(target_path, name) for name in os.listdir(target_path)]
+        except Exception:
+            entries = []
+        r_files = [f for f in entries if is_er1_recording(f)]
+        r_files.sort(key=lambda x: os.path.basename(x))
         if not r_files:
-            print(f"[-] No 'R*' recording files found in: {target_path}")
+            print(f"[-] No ER1 recording files found in: {target_path}")
             return False
         print(f"[*] Found {len(r_files)} recording file(s):")
         res = import_records(r_files)

@@ -1,0 +1,160 @@
+# Launcher & Interceptor Specification
+
+Component: `AI-ECG Portable.exe` / `Program.cs`  
+Target Runtime: .NET Framework 4.0 / C# 5  
+Subsystem: `IMAGE_SUBSYSTEM_WINDOWS_GUI (2)`
+
+## 1. Process Lifecycle & Environment Isolation
+
+### 1.1 Single-Instance Mutex
+- Mutex Name: `AI_ECG_Analysis_Portable_SingleInstance_Mutex`
+- Behavior: Aborts startup with an error dialog if another portable instance is running.
+- Conflict Prevention: Checks `Process.GetProcessesByName("ECG Data Management")`. If already active, prompts user to close it before portable launcher execution.
+
+### 1.2 Storage Isolation
+- Host profile directory: `%LOCALAPPDATA%\ECG Browser`
+- Temporary backup directory: `%TEMP%\ECG_Browser_HostBackup_{GUID}`
+- Startup:
+  1. If host `%LOCALAPPDATA%\ECG Browser` exists, moves/copies it to temporary backup directory.
+  2. Copies portable `Data/` contents into `%LOCALAPPDATA%\ECG Browser`.
+  3. Updates `config.ini` setting `DataDir=` to normalized path (`Path.Combine(hostEcgBrowserDir, "DATA").Replace('\\', '/')`).
+- Shutdown:
+  1. Copies host `%LOCALAPPDATA%\ECG Browser` contents back into portable `Data/`.
+  2. Safely deletes temporary host `%LOCALAPPDATA%\ECG Browser`.
+  3. Restores original host profile from backup directory.
+
+### 1.3 Safe Portable Vendor Update
+- **Timing & Eligibility**:
+  - Runs after single-instance mutex check and after verifying `App\ECG Data Management.exe` exists, prior to the `%LOCALAPPDATA%\ECG Browser` host-profile swap.
+  - Source location: `C:\Program Files (x86)\ECG Data Management\ECG Data Management.exe`.
+  - Condition: Offered only when the installed executable's UTC write time (`File.GetLastWriteTimeUtc`) is strictly later than `App\ECG Data Management.exe`. If the installed executable is missing, older, or has the same timestamp, startup proceeds normally without prompting. `HintVer` and Settings labels are ignored.
+- **Skip File (`vendor-update-skip.txt`)**:
+  - Located beside the launcher (`<appDir>\vendor-update-skip.txt`).
+  - Stores the UTC ticks of declined builds. If the file exists and contains ticks matching the installed executable, the update prompt is suppressed. Any other file content or a missing file prompts the user.
+- **Confirmation Dialog**:
+  - Fixed, centered modal dialog (`AI-ECG Portable`) presenting three buttons:
+    - **Yes**: Proceeds with backup, staging, and atomic directory replacement.
+    - **Not now**: Cancels the update for this session and continues normal launch without writing to the skip file (Escape key maps here).
+    - **Don't ask for this build**: Writes the installed build's UTC ticks to `vendor-update-skip.txt` and continues normal launch.
+- **Pre-Update Backups & Space Safety**:
+  - Calculates required disk space: total bytes in portable `Data\` (0 if absent) plus total bytes in the installed tree (excluding uninstaller files).
+  - Verifies available space using `DriveInfo.AvailableFreeSpace`. If insufficient, displays a warning and starts the current version without modifying files.
+  - Generates a timestamped backup directory: `_backup\<yyyyMMdd_HHmmss>\`.
+  - Copies `Data\` to `_backup\<stamp>\Data\` and current `App\` to `_backup\<stamp>\App\`. Backups are never deleted automatically. If any backup step fails, live `App\` remains untouched and normal startup continues.
+- **Payload Staging & File Exclusions**:
+  - Prepares `_backup\<stamp>\App-staged\` by copying current `App\` and overlaying files from `C:\Program Files (x86)\ECG Data Management\`.
+  - File exclusions: Always skips `unins000.exe` and `unins000.dat` at any depth.
+  - Preserves App-only files: Overwrites existing vendor files and copies Qt plugins/new files without deleting files that exist only in `App\`.
+  - Atomic swap: `Directory.Move` live `App\` to `_backup\<stamp>\App-previous\`, then moves `App-staged\` to `App\`. If the second move fails, `App-previous\` is restored to `App\`.
+- **Process Monitoring & No-Window Rollback**:
+  - Tracks whether the main window appears via `s_mainWindowSeen` (set when `FindMainWindow` or the `EVENT_OBJECT_SHOW` hook identifies the ownerless Qt main window with `w >= 600 && h >= 400`).
+  - If the updated process exits and `s_mainWindowSeen` was never true:
+    - Shutdown sync is skipped: host profile changes are not copied back over portable `Data\`. State that shutdown sync is skipped only for the failed updated process.
+    - Failed `App\` moved to `_backup\<stamp>\App-failed\`.
+    - Restores `App\` by copying `_backup\<stamp>\App\` back into place (retaining the backup copy).
+    - Displays a rollback notice dialog displaying the `_backup\<stamp>\` path.
+    - Cleans host directory, rebuilds host profile from portable `Data\`, and launches the restored executable once.
+    - The second start syncs data normally if its main window appears; if it also exits with no window, shutdown sync is skipped again.
+  - If the main window was seen, updated files are retained and standard shutdown sync executes normally upon exit.
+
+---
+
+## 2. Unified Interceptor Thread Architecture
+
+### 2.1 Thread & DPI Context
+- Dedicated background thread with active Win32 message pump (`GetMessage`, `TranslateMessage`, `DispatchMessage`).
+- Uses `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE` (`IntPtr(-3)`) when querying window bounds (`GetWindowRectDpiAware`) and calculating sidebar metrics to prevent high-DPI coordinate distortion.
+
+### 2.2 Main Window Detection
+- Enumerates windows matching target process PID with Qt window class (`sbClass.Contains("Qt")`).
+- Identified when: `owner == IntPtr.Zero && width >= 600 && height >= 400 && IsWindowVisible(hwnd)`.
+- Stored globally in `s_mainHwnd`.
+
+### 2.3 Show-Event Hook (`EVENT_OBJECT_SHOW`)
+- Uses `SetWinEventHook` with `EVENT_OBJECT_SHOW` and `WINEVENT_OUTOFCONTEXT`.
+- Main Window: If `s_mainHwnd == IntPtr.Zero` and window is ownerless with `w >= 600 && h >= 400`, sets `s_mainHwnd` and triggers sidebar button attachment.
+- Popups: Once `s_mainHwnd` is set, **all other Qt windows** (`hwnd != s_mainHwnd`) belonging to target process are evaluated via `TryInterceptDownloadDialog`, **including ownerless windows**.
+- Ignored Windows: Ignores `s_allowedDeviceHwnd` (the native dialog revealed after choosing **Import from device**).
+
+### 2.4 Download Dialog Interception (`TryInterceptDownloadDialog`)
+- **Exclusion Filters (Non-Download Popups):**
+  - Small alerts/confirmations (e.g. Delete record prompt, messageboxes): `height < 200` or `width < 340`.
+  - Device Info Dialog (`DeviceInfoDialog`): `554 × 388` at 125% DPI (or scaled equivalents).
+  - Settings Dialog (`SettingDialog`): `443 × 288` at 125% DPI (or scaled equivalents).
+  - Notifications Dialog (`NotifyDialog`): `400 × 327` at 125% DPI (or scaled equivalents).
+- **Matching Criteria:**
+  1. Window title contains `"Download"` or `"Import"` (case-insensitive).
+  2. OR window dimensions match known scaled download dialog sizes (`DeviceDownloadDialog`) with strict tolerance (±14 px):
+     - **100% DPI:** `387 × 273`
+     - **125% DPI:** `484 × 335` (measured) / `484 × 341` (nominal)
+     - **150% DPI:** `581 × 410`
+     - **175% DPI:** `677 × 478`
+     - **200% DPI:** `774 × 546`
+- **Click Tracking Validation:**
+  - `WH_MOUSE_LL` hook monitors left clicks on the top toolbar "Import Data" button (`fromRight` in `[170..265] × dpiScale`, `y` in `[12..58] × dpiScale`).
+  - Records `s_lastImportBtnClickTime = DateTime.UtcNow`.
+- **Execution Actions:**
+  - Guards against re-entrancy via `lock (s_importLock)` and `s_isImportModalRunning`.
+  - Resets `s_lastImportBtnClickTime = DateTime.MinValue`.
+  - Hides intercepted window immediately via `ShowWindow(hwnd, SW_HIDE)`.
+  - Offloads modal execution to background ThreadPool calling `RunImportModal`.
+- **Delayed Recheck:**
+  - If show-event does not match initially, queues `RecheckDownloadDialog` after 150 ms to catch late title/dimension updates from Qt layout engines.
+
+### 2.5 Periodic Timer Scanning (200 ms)
+- Timer installed via Win32 `SetTimer(IntPtr.Zero, (IntPtr)1, 200, IntPtr.Zero)`.
+- Actions on `WM_TIMER`:
+  1. Repositions sidebar `+ Add User` button via `PlaceAddUserButton()`.
+  2. If `!s_isImportModalRunning && s_mainHwnd != IntPtr.Zero`, invokes `ScanForDownloadDialog()`:
+     - Only scans if "Import Data" was clicked within the last 3.0 seconds (`DateTime.UtcNow - s_lastImportBtnClickTime <= 3.0s`), ensuring background polling never touches standing windows (Settings, Device Info, Notifications).
+     - Calls `EnumWindows` to detect any visible Qt window from target process that bypassed `EVENT_OBJECT_SHOW`.
+     - Skips `s_mainHwnd` and `s_allowedDeviceHwnd`.
+     - Runs `TryInterceptDownloadDialog()`. If matched, stops window enumeration immediately.
+
+---
+
+## 3. Sidebar `+ Add User` Button Injection
+
+### 3.1 Child Window Creation
+- Class: `"BUTTON"`, Style: `WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON`, Parent: `s_mainHwnd`.
+- Font: Segoe UI, 9pt bold (`CreateFont(-11, ..., 700, ..., "Segoe UI")`).
+- Subclassed via `GWL_WNDPROC` for custom GDI painting:
+  - Normal: `#e8f4fd` background, `#5ba0dc` border, `#2ea2f8` text.
+  - Hover: `#d6eefd` background, `#1d8ce0` border, `#127fd4` text.
+  - Pressed: `#2ea2f8` background, `#1d8ce0` border, `#ffffff` text.
+  - Custom cursor: `IDC_HAND`.
+
+### 3.2 Dynamic Layout Adjustment
+- Scans client pixels at y=100 and y=132 via `GetPixel` to find patient list sidebar blue boundary (`FindSidebarRight`).
+- Adapts text based on available width:
+  - Width >= 82 px: `"+ Add User"`
+  - Fits available width: `"+ Add"`
+  - Narrow fallback: `"+"`
+  - Width < 16 px: Hides button.
+
+### 3.3 Low-Level Mouse Hook (`WH_MOUSE_LL`)
+- Detects `WM_RBUTTONUP` on main window.
+- Maps point to client coordinates using `ScreenToClient` with per-monitor DPI awareness.
+- If clicked within "All Users" row bounds (`x in [16, sidebarRight]`, `y in [134, 168]`):
+  - Displays Win32 popup menu (`TrackPopupMenuEx`) with `"+ Add User..."`.
+  - On click, triggers `RunAddUserModal()`.
+
+---
+
+## 4. Subprocess Execution & Exit Codes
+
+### 4.1 Import Modal Execution (`RunImportModal`)
+- Launches: `pythonw.exe import_gui.py` (with no arguments).
+- Fallback: Uses `python.exe` if `pythonw.exe` is not found.
+- Handled Exit Codes:
+  - **Code 0 (Cancel):** Closes intercepted native dialog with `WM_CLOSE`.
+  - **Code 1 (Original Device Import):** Sets `s_allowedDeviceHwnd = dialogHwnd`, unhides native dialog (`ShowWindow(dialogHwnd, SW_SHOW)`), and brings it to foreground.
+  - **Code 2 (Recordings Imported):** Closes native dialog, synchronizes host storage to portable `Data/`, sets `s_restartRequested = true`, and closes `s_mainHwnd` with `WM_CLOSE` to trigger a clean reload.
+  - **Code -1 / Failure:** Closes native dialog with `WM_CLOSE`.
+
+### 4.2 Add User Modal Execution (`RunAddUserModal`)
+- Launches: `pythonw.exe manage_users.py --add-gui`.
+- Handled Exit Codes:
+  - **Code 2:** Patient added and refresh requested -> syncs database, sets `s_restartRequested = true`, and closes main window to reload.
+  - **Code 3:** Patient added without reload request -> syncs database.
+

@@ -1,0 +1,23 @@
+# ── Agent / IDE tooling ─────────────────────────────────────────────────────
+.grill/
+
+# ── Python build artefacts ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ── Runtime database & patient data ─────────────────────────────────────────
+Data/DATA/
+
+# ── Runtime logs & crash dumps ──────────────────────────────────────────────
+Data/log/
+Data/dump/
+
+# ── Live config (machine-specific) ──────────────────────────────────────────
+Data/config.ini
+
+# ── Timestamped backups ──────────────────────────────────────────────────────
+_backup/
+
+# ── Scratch / throwaway scripts ─────────────────────────────────────────────
+scratch/

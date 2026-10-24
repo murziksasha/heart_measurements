@@ -1,0 +1,111 @@
+{
+    "code": 200,
+    "data": {
+        "abnormalBeatCount": "3",
+        "abnormalBeatPercent": 0,
+        "afBeatPercent": 0,
+        "allEventList": [
+            {
+                "endPos": "1544838",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-04 22:37:41",
+                "startPos": "1542838"
+            },
+            {
+                "endPos": "2127114",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-04 23:16:30",
+                "startPos": "2125114"
+            },
+            {
+                "endPos": "25778",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-04 20:56:25",
+                "startPos": "23778"
+            },
+            {
+                "endPos": "36955",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-04 20:57:09",
+                "startPos": "34955"
+            },
+            {
+                "endPos": "96161",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-04 21:01:06",
+                "startPos": "94161"
+            }
+        ],
+        "analysisReport": "https://elasticbeanstalk-us-west-2-697648770036.s3.us-west-2.amazonaws.com/viatomstoragepro/data/file/2026/1004/ea04afa1-504c-430a-a616-69dfa5f3e025.pdf",
+        "asystoleRRPeriodCount": 0,
+        "atrialBeatCount": 0,
+        "atrialBigeminyCount": 0,
+        "atrialPermatureBeatCount": 0,
+        "atrialTachycardiaCount": 0,
+        "atrialTrigeminyCount": 0,
+        "averageHeartRate": 79,
+        "beatCount": "11749",
+        "coupleAtrialPermatureCount": 0,
+        "coupleVentricularPermatureCount": 0,
+        "dataEndTime": "2026-10-04 23:23:20",
+        "dataStartTime": "2026-10-04 20:54:50",
+        "diagnoseList": [
+            {
+                "code": "101",
+                "diagnoseInfo": "Normal sinus rhythm"
+            },
+            {
+                "code": "142",
+                "diagnoseInfo": "Premature Ventricular Contraction (PVC)"
+            }
+        ],
+        "eventList": [
+            {
+                "endPos": "1544838",
+                "eventCode": "13000",
+                "eventName": "最大心率",
+                "eventTime": "2026-10-04 22:37:41",
+                "startPos": "1542838"
+            },
+            {
+                "endPos": "2127114",
+                "eventCode": "13001",
+                "eventName": "最小心率",
+                "eventTime": "2026-10-04 23:16:30",
+                "startPos": "2125114"
+            },
+            {
+                "endPos": "25778",
+                "eventCode": "10000",
+                "eventName": "室性早搏",
+                "eventTime": "2026-10-04 20:56:25",
+                "startPos": "23778"
+            }
+        ],
+        "longRRPeriodCount": 0,
+        "longestAtrialTachycardiaDuration": 0,
+        "longestAtrialTachycardiaOccurTime": "",
+        "longestVentricularTachycardiaDuration": 0,
+        "longestVentricularTachycardiaOccurTime": "",
+        "maxHeartRate": 112,
+        "maxHeartRateTime": "2026-10-04 22:37:41",
+        "maxLongAsystoleTime": "",
+        "maxLongRRPeriod": 0,
+        "minHeartRate": 66,
+        "minHeartRateTime": "2026-10-04 23:16:30",
+        "reportTime": "2026-10-05 04:24:28",
+        "totalDuration": 8910,
+        "validDuration": 8910,
+        "ventricularBeatCount": 3,
+        "ventricularBigeminyCount": 0,
+        "ventricularPermatureBeatCount": 3,
+        "ventricularTachycardiaCount": 0,
+        "ventricularTrigeminyCount": 0
+    },
+    "msg": "success"
+}

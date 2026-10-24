@@ -21,6 +21,7 @@ from ui_theme import (
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "Data", "config.ini")
+SIGN_IN_REQUIRED = "Sign in with ECG Data Management first."
 
 DEVICE_PROFILES = {
     "ER1": {
@@ -83,8 +84,8 @@ def get_current_admin(conn=None):
         cur = conn.cursor()
         cur.execute("SELECT admin FROM tb_admin LIMIT 1")
         row = cur.fetchone()
-        if row and row[0]:
-            return row[0]
+        if row and str(row[0] or "").strip():
+            return str(row[0]).strip()
     except Exception:
         pass
     finally:
@@ -94,11 +95,19 @@ def get_current_admin(conn=None):
 
 
 def _admin_from_config():
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, "r", encoding="utf-8", errors="ignore") as handle:
+    candidates = (
+        CONFIG_PATH,
+        os.path.join(os.path.dirname(SCRIPT_DIR), "Data", "config.ini"),
+    )
+    for config_path in candidates:
+        if not os.path.exists(config_path):
+            continue
+        with open(config_path, "r", encoding="utf-8", errors="ignore") as handle:
             for line in handle:
                 if line.startswith("LoginString="):
-                    return line.strip().split("=", 1)[1]
+                    value = line.strip().split("=", 1)[1].strip()
+                    if value:
+                        return value
     return ""
 
 
@@ -164,8 +173,10 @@ def bind_device(sn, model_key="ER1", admin=None, branchcode=None, devicetype=Non
     profile = DEVICE_PROFILES.get(model_key, DEVICE_PROFILES["ER1"])
     branch = branchcode if branchcode else profile["branchcode"]
     dtype = devicetype if devicetype is not None else profile["devicetype"]
-    if admin is None:
-        admin = get_current_admin()
+    admin = str(get_current_admin() or "").strip()
+    if not admin:
+        print("[!] " + SIGN_IN_REQUIRED)
+        return False
 
     query = """
     INSERT INTO tb_device(sn, admin, hwversion, fwversion, blversion, devicetype, protocolversion, branchcode)
@@ -298,6 +309,9 @@ class DeviceApp(tk.Tk):
         if not sn:
             self._set_status("Enter the serial from the recorder.", ERROR)
             return
+        if not str(get_current_admin() or "").strip():
+            self._set_status(SIGN_IN_REQUIRED, ERROR)
+            return
         try:
             ok = bind_device(sn, self.model_var.get() or "ER1")
         except Exception as exc:
@@ -320,6 +334,9 @@ class DeviceApp(tk.Tk):
         self._reload()
 
     def _scan(self):
+        if not str(get_current_admin() or "").strip():
+            self._set_status(SIGN_IN_REQUIRED, ERROR)
+            return
         sources = find_recording_sources()
         if not sources:
             self._set_status("No ER1 drive detected. Plug it in, or type the serial.", ERROR)
@@ -395,7 +412,7 @@ def main():
     parser.add_argument("--bind", metavar="SN", help="Bind a recorder by serial")
     parser.add_argument("--unbind", metavar="SN", help="Unbind a recorder by serial")
     parser.add_argument("--model", default="ER1", choices=list(DEVICE_PROFILES.keys()), help="Recorder model")
-    parser.add_argument("--admin", help="Account email to bind to")
+    parser.add_argument("--admin", help="Ignored. The account comes from ECG Data Management.")
     parser.add_argument("--scan", action="store_true", help="Scan USB and bind only a serial found in file names")
     parser.add_argument("--menu", action="store_true", help="Open the text menu")
     parser.add_argument("--gui", action="store_true", help="Open the recorder window")

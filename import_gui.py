@@ -12,7 +12,7 @@ import sys
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 
 from import_local_er1 import (
     scan_folder_records,
@@ -22,7 +22,7 @@ from import_local_er1 import (
     format_report_chip,
     format_file_size,
 )
-from manage_users import AddUserDialog, get_all_subusers
+from manage_users import SIGN_IN_REQUIRED, AddUserDialog, get_all_subusers, get_current_admin
 from ui_theme import (
     BG, CARD, BORDER, TEXT, MUTED, PRIMARY, SUCCESS, WARNING, ERROR, ROW_ALT, STRIPE,
     FONT, FONT_BOLD, FONT_SMALL, FONT_TITLE,
@@ -130,7 +130,7 @@ class FolderImportApp(tk.Tk):
         tk.Label(header, text=APP_TITLE, font=FONT_TITLE, fg=TEXT, bg=CARD).pack(anchor="w")
         tk.Label(
             header,
-            text="New recordings are selected. Imported ones stay unchecked unless you choose to replace them.",
+            text="New recordings are selected. A recording already stored for this patient cannot be imported again.",
             font=FONT_SMALL,
             fg=MUTED,
             bg=CARD,
@@ -320,13 +320,20 @@ class FolderImportApp(tk.Tk):
         record["_var"] = var
 
         def toggle(*_args):
+            if record["is_duplicate"]:
+                if var.get():
+                    var.set(False)
+                return
             record["checked"] = bool(var.get())
             self._paint_state(state, record)
             self._update_summary()
             self._update_import_button()
 
         var.trace_add("write", toggle)
-        ttk.Checkbutton(row, variable=var, style=style).pack(side="left", padx=(4, 8))
+        chk = ttk.Checkbutton(row, variable=var, style=style)
+        chk.pack(side="left", padx=(4, 8))
+        if record["is_duplicate"]:
+            chk.state(["disabled"])
 
         when = tk.Frame(row, bg=bg)
         when.pack(side="left", padx=(0, 12))
@@ -344,17 +351,15 @@ class FolderImportApp(tk.Tk):
         self._paint_state(state, record)
 
         def flip(_event, target=var):
-            if not self._busy:
+            if not self._busy and not record["is_duplicate"]:
                 target.set(not target.get())
 
         for widget in (row, when, when_title, when_file, length, size, state):
             widget.bind("<Button-1>", flip)
 
     def _paint_state(self, label, record):
-        if record["is_duplicate"] and record["checked"]:
-            text, color = "Replace existing", WARNING
-        elif record["is_duplicate"]:
-            text, color = "Imported", MUTED
+        if record["is_duplicate"]:
+            text, color = "Already exist", MUTED
         elif record["checked"]:
             text, color = "New", SUCCESS
         else:
@@ -364,6 +369,8 @@ class FolderImportApp(tk.Tk):
         label.config(text=text, fg=color)
 
     def _set_checked(self, record, value):
+        if record["is_duplicate"]:
+            value = False
         record["checked"] = value
         var = record.get("_var")
         if var is not None and bool(var.get()) != value:
@@ -391,32 +398,29 @@ class FolderImportApp(tk.Tk):
     def _update_summary(self):
         total = len(self.records)
         new_count = sum(1 for record in self.records if not record["is_duplicate"])
-        imported = total - new_count
+        already_exist = total - new_count
         selected = len(self._selected_records())
-        self.summary_var.set("%d recordings · %d new · %d imported · %d selected" % (total, new_count, imported, selected))
+        self.summary_var.set("%d recordings · %d new · %d already exist · %d selected" % (total, new_count, already_exist, selected))
 
     def _update_import_button(self):
         selected = self._selected_records()
-        replace = sum(1 for record in selected if record["is_duplicate"])
-        fresh = len(selected) - replace
+        importable = [record for record in selected if not record["is_duplicate"]]
         if self._busy:
             self.import_btn.config(state="disabled", bg="#b0bec5", text="Importing…")
             return
-        if not selected:
+        if not importable:
             self.import_btn.config(state="disabled", bg="#b0bec5", text="Import recordings")
             return
-        parts = []
-        if fresh:
-            parts.append("Import %d" % fresh)
-        if replace:
-            parts.append("replace %d" % replace)
-        self.import_btn.config(state="normal", bg=PRIMARY, text=", ".join(parts))
+        self.import_btn.config(state="normal", bg=PRIMARY, text="Import %d" % len(importable))
 
     def _do_import(self):
-        selected = self._selected_records()
+        selected = [record for record in self._selected_records() if not record["is_duplicate"]]
         if not selected or self._busy:
             return
-        jobs = [(record["filepath"], bool(record["is_duplicate"])) for record in selected]
+        if not str(get_current_admin() or "").strip():
+            messagebox.showinfo("Sign in", SIGN_IN_REQUIRED, parent=self)
+            return
+        jobs = [(record["filepath"], False) for record in selected]
         patient_id = self._selected_patient_id()
         self._busy = True
         self.import_btn.config(state="disabled", bg="#b0bec5", text="Importing…")
@@ -494,14 +498,98 @@ class FolderImportApp(tk.Tk):
         self.destroy()
 
 
+class ImportChooserApp(tk.Tk):
+    """Chooser dialog: choose folder import or device download."""
+
+    def __init__(self):
+        super().__init__()
+        self.title(APP_TITLE)
+        self.configure(bg=BG)
+        apply_theme(self)
+        self.minsize(300, 160)
+        self.resizable(False, False)
+        center(self, 340, 200)
+
+        self.choice = "cancel"
+        self._top_after = None
+
+        self._build()
+
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda _event: self._cancel())
+
+        self.attributes("-topmost", True)
+        self._top_after = self.after(400, self._drop_topmost)
+        self.lift()
+        self.focus_force()
+
+    def _drop_topmost(self):
+        self._top_after = None
+        if self.winfo_exists():
+            self.attributes("-topmost", False)
+
+    def destroy(self):
+        if self._top_after is not None:
+            try:
+                self.after_cancel(self._top_after)
+            except Exception:
+                pass
+            self._top_after = None
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+        super().destroy()
+
+    def _build(self):
+        tk.Frame(self, bg=PRIMARY, height=4).pack(fill="x")
+
+        card = tk.Frame(self, bg=CARD, padx=20, pady=16, highlightthickness=1, highlightbackground=BORDER)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        button(card, "Import from folder", self._choose_folder, kind="primary").pack(fill="x", pady=(0, 8))
+        button(card, "Import from device", self._choose_device, kind="secondary").pack(fill="x", pady=(0, 8))
+        button(card, "Cancel", self._cancel, kind="secondary").pack(fill="x")
+
+    def _choose_folder(self):
+        self.choice = "folder"
+        self.destroy()
+
+    def _choose_device(self):
+        self.choice = "device"
+        self.destroy()
+
+    def _cancel(self):
+        self.choice = "cancel"
+        self.destroy()
+
+
 def main():
-    initial_dir = None
-    if len(sys.argv) > 1 and not sys.argv[-1].startswith("--"):
-        initial_dir = sys.argv[-1]
-    app = FolderImportApp(initial_dir=initial_dir)
-    app.mainloop()
-    sys.exit(app.exit_code)
+    folder_flag = False
+    folder_path = None
+    for arg in sys.argv[1:]:
+        if arg == "--folder":
+            folder_flag = True
+        elif not arg.startswith("--") and folder_path is None:
+            folder_path = arg
+
+    if not folder_flag and not folder_path:
+        chooser = ImportChooserApp()
+        chooser.mainloop()
+        if chooser.choice == "folder":
+            app = FolderImportApp()
+            app.mainloop()
+            sys.exit(app.exit_code)
+        elif chooser.choice == "device":
+            sys.exit(1)
+        else:
+            sys.exit(0)
+    else:
+        app = FolderImportApp(initial_dir=folder_path)
+        app.mainloop()
+        sys.exit(app.exit_code)
 
 
 if __name__ == "__main__":
     main()
+

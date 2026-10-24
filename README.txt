@@ -10,19 +10,25 @@ rights.
 
 HOW TO USE:
 1. Double-click "AI-ECG Portable.exe" to start the application.
-2. The application automatically logs into your account (1versuses1@gmail.com)
-   with patient profile "Grygoriev" and your registered ER1 device ready.
+2. ECG Data Management opens its own login. Email and password start empty
+   until you sign in. After that, the original app may remember the login.
 3. To import ECG recordings:
    - In the top toolbar, click "Import Data".
-   - One window opens. It uses a connected ER1 drive when it sees one,
-     or browse to a folder of copied files (names starting with R).
-   - Pick the patient. New recordings are checked. Already imported ones
-     stay unchecked; check one only if you mean to replace it.
+   - The import chooser opens with three options:
+     * "Import from folder": Opens the folder list. It uses a connected ER1
+       drive when it sees one, or browse to a folder of copied files (only
+       ER1 names: R + timestamp, optional serial).
+     * "Import from device": Unhides the vendor download dialog to import directly
+       from a connected recorder.
+     * "Cancel": Closes the chooser and returns to the patient list.
+   - When importing from folder, pick the patient. New recordings are checked.
+     A recording already imported for the chosen patient shows Already exist
+     and cannot be selected.
    - A saved AI report, when present, is shown on that row (heart rate and
      the first diagnosis).
    - Close the window after a successful import. ECG Data Management
-     restarts so the new rows appear. "Original device import" opens the
-     vendor dialog instead.
+     restarts so the new rows appear. "Original device import" is also available
+     inside the folder list if you need the vendor dialog.
 4. View report, View ECG, and batch analysis stay in the main window.
 5. When you exit, all newly imported ECG recordings, patient records, PDF
    reports, and user configurations are automatically saved inside "Data/".
@@ -47,6 +53,15 @@ PATIENT MANAGEMENT:
   address. There is no note field; the patient table has nowhere to store one.
 - Deleting a patient who has recordings asks you to type the name.
 
+SAFE VENDOR UPDATES:
+- Update your installed ECG Data Management app first (vendor "Check for Updates"
+  or a new installer).
+- The next time you start "AI-ECG Portable.exe", it detects the newer installed
+  build and asks if you wish to update the portable copy.
+- Your patients, recordings, launcher, and Python tools stay intact.
+- A full backup of "Data/" and previous "App/" files is saved under "_backup/<timestamp>/"
+  before any changes are made and is permanently kept.
+
 DIRECTORY STRUCTURE:
 - AI-ECG Portable.exe  : Portable launcher (run this file)
 - Manage Users.bat     : Patient Manager tool (add/list/manage patient profiles)
@@ -54,11 +69,14 @@ DIRECTORY STRUCTURE:
 - Import ECG.bat       : Direct ECG file importer (graphical folder importer)
 - manage_users.py      : Patient list, add, and edit
 - manage_devices.py    : Recorder bind / unbind window
-- import_gui.py        : Import window
+- import_gui.py        : Import window (chooser and folder importer)
 - import_local_er1.py  : ECG file import and decompression
 - ui_theme.py          : Shared window colors and buttons
 - App/                 : Application binaries, Qt libraries, and drivers
 - Data/                : Portable patient database, reports, settings, and logs
   - config.ini         : User preferences and settings
   - DATA/              : SQLite database and patient ECG records/reports
+- _backup/             : Pre-update backups of Data/ and App/ (never deleted automatically)
+- vendor-update-skip.txt : Saved tick timestamp when declining updates for a build
 ========================================================================
+
